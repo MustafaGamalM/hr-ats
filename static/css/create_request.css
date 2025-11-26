@@ -1,0 +1,54 @@
+:root{
+  --bg: #0b1723;
+  --panel: #102030;
+  --accent: #4cc3ff;
+  --muted: #8ca0b3;
+  --text: #e8f0f8;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  background: radial-gradient(circle at 20% 20%, #0f2740, var(--bg));
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow-y: hidden;
+}
+.shell {
+  width: min(960px, 100%);
+  background: linear-gradient(135deg, var(--panel), #0f1c2b);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+  padding: 28px;
+}
+h1 {
+  margin: 0 0 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+label {
+  display: block;
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+select, button {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: #0c1a28;
+  color: var(--text);
+  font-size: 15px;
+  transition: border 120ms ease, box-shadow 120ms ease;
+}
+select:focus, button:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(76,195,255,0.18);
+}
