@@ -7,7 +7,6 @@ import pyodbc
 
 from create_request import request_create_page
 from page_view import CVScreen
-from test import JobRequestScreen
 
 load_dotenv()
 
