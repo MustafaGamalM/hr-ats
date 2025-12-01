@@ -43,7 +43,6 @@ class CVScreen:
                 margin: 0 0 18px;
                 font-weight: 700;
                 letter-spacing: 0.02em;
-                letter-spacing: 0.02em;
             }
             .lede {
                 margin: 0 0 18px;
@@ -60,7 +59,7 @@ class CVScreen:
                 color: var(--muted);
                 margin-bottom: 6px;
             }
-            select {
+            select, input, button {
                 width: 100%;
                 padding: 12px 14px;
                 border-radius: 10px;
@@ -68,278 +67,229 @@ class CVScreen:
                 background: #0c1a28;
                 color: var(--text);
                 font-size: 15px;
-                transition: border 120ms ease, box-shadow 120ms ease;
+                transition: border 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
             }
-            select:focus {
+            select:focus, input:focus, button:focus {
                 outline: none;
                 border-color: var(--accent);
                 box-shadow: 0 0 0 3px rgba(76,195,255,0.18);
+            }
+            button {
+                background: linear-gradient(90deg, var(--accent), #78d7ff);
+                color: #081420;
+                font-weight: 700;
+                cursor: pointer;
+            }
+            button.primary {
+                border: none;
+            }
+            button:disabled, select:disabled, input:disabled {
+                opacity: 0.55;
+                cursor: not-allowed;
             }
             .row {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
                 gap: 14px;
             }
-            .table-card {
-                margin-top: 20px;
-                background: #0c1a28;
-                border: 1px solid rgba(255,255,255,0.06);
-                border-radius: 12px;
-                padding: 14px;
-            }
-            .table-head {
-                display: flex;
-                justify-content: space-between;
-                align-items: baseline;
-                margin-bottom: 8px;
-                gap: 8px;
-            }
-            .table-head h2 {
-                margin: 0;
-                font-size: 18px;
-            }
             .hint {
                 color: var(--muted);
                 font-size: 13px;
             }
-            .totals {
-                display: flex;
-                justify-content: flex-end;
-                align-items: center;
-                gap: 6px;
-                margin-top: 8px;
-                color: var(--muted);
-                font-size: 14px;
-            }
-            table {
-                width: 100%;
-                border-collapse: collapse;
-            }
-            th, td {
-                text-align: left;
-                padding: 10px;
-            }
-            thead {
-                background: rgba(255,255,255,0.03);
-            }
-            tbody tr:nth-child(odd) {
-                background: rgba(255,255,255,0.02);
-            }
-            tbody tr:nth-child(even) {
-                background: rgba(255,255,255,0.04);
-            }
-            .pill {
-                color: var(--accent);
-                font-weight: 600;
-            }
-            .ghost {
-                padding: 6px 10px;
-                border-radius: 8px;
-                border: 1px solid rgba(255,255,255,0.25);
-                background: transparent;
-                color: var(--text);
-                cursor: pointer;
-                transition: border 120ms ease, color 120ms ease, transform 120ms ease;
-            }
-            .ghost:hover {
-                border-color: var(--accent);
-                color: var(--accent);
-                transform: translateY(-1px);
-            }
             .status {
-                margin-top: 10px;
+                margin-top: 16px;
                 font-size: 13px;
                 color: var(--muted);
+            }
+            .button-cell {
+                display: flex;
+                align-items: flex-end;
             }
         </style>
     </head>
     <body>
         <div class="shell">
-            <h1>Job Matching: Full Lists</h1>
-            <p class="lede">Pick from any dropdown to add it to the table. Remove a row to clear that dropdown.</p>
+            <h1>Job Title Scoring</h1>
+            <p class="lede">Pick a job title, drill down Category → Subcategory → Criteria, enter a score, and insert it.</p>
             <div class="grid">
+                <div>
+                    <label for="jobTitle">Job Title</label>
+                    <select id="jobTitle"></select>
+                </div>
                 <div>
                     <label for="category">Category</label>
                     <select id="category"></select>
                 </div>
                 <div>
                     <label for="subcategory">SubCategory</label>
-                    <select id="subcategory"></select>
+                    <select id="subcategory" disabled></select>
                 </div>
                 <div>
                     <label for="criteria">Criteria</label>
-                    <select id="criteria"></select>
+                    <select id="criteria" disabled></select>
                 </div>
                 <div>
-                    <label for="jobTitle">Job Title</label>
-                    <select id="jobTitle"></select>
+                    <label for="score">Score</label>
+                    <input id="score" type="number" min="0" step="1" placeholder="Enter score" />
                 </div>
-            </div>
-            <div class="table-card">
-                <div class="table-head">
-                    <h2>Selections</h2>
-                    <span class="hint">Each dropdown can have one active choice.</span>
-                </div>
-                <div class="table-wrap">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Source</th>
-                                <th>English</th>
-                                <th>Arabic</th>
-                                <th>Score</th>
-                                <th></th>
-                            </tr>
-                        </thead>
-                        <tbody id="selectionBody">
-                            <tr id="emptyRow"><td colspan="5" class="hint">Selections will appear here.</td></tr>
-                        </tbody>
-                    </table>
-                </div>
-                <div class="totals">
-                    <span>Total score:</span>
-                    <strong id="totalScore">0</strong>
+                <div class="button-cell">
+                    <label>&nbsp;</label>
+                    <button id="addRow" class="primary">Insert</button>
                 </div>
             </div>
             <div class="status" id="status"></div>
         </div>
 
         <script>
+            const jobTitleSel = document.getElementById('jobTitle');
             const categorySel = document.getElementById('category');
             const subcategorySel = document.getElementById('subcategory');
             const criteriaSel = document.getElementById('criteria');
-            const jobTitleSel = document.getElementById('jobTitle');
+            const scoreInput = document.getElementById('score');
+            const addRowBtn = document.getElementById('addRow');
             const status = document.getElementById('status');
-            const selectionBody = document.getElementById('selectionBody');
-            const emptyRow = document.getElementById('emptyRow');
-            const totalScoreEl = document.getElementById('totalScore');
-
-            const selectMap = {
-                category: categorySel,
-                subcategory: subcategorySel,
-                criteria: criteriaSel,
-                jobTitle: jobTitleSel,
-            };
-            const selectLabels = {
-                category: 'Category',
-                subcategory: 'Subcategory',
-                criteria: 'Criteria',
-                jobTitle: 'Job Title',
-            };
 
             const setStatus = (msg) => { status.textContent = msg || ''; };
 
-            const resetSelect = (selectEl, placeholder) => {
+            const resetSelect = (selectEl, placeholder, disabled = false) => {
                 selectEl.innerHTML = '';
                 const opt = document.createElement('option');
                 opt.value = '';
                 opt.textContent = placeholder;
                 selectEl.appendChild(opt);
+                selectEl.disabled = disabled;
             };
 
             const fetchJSON = async (url) => {
                 const res = await fetch(url);
-                if (!res.ok) throw new Error(`Request failed with status ${res.status}`);
-                return res.json();
+                const body = await res.json();
+                if (!res.ok) {
+                    const err = body?.error || `Request failed with status ${res.status}`;
+                    throw new Error(err);
+                }
+                return body;
             };
 
-            const fillSelect = (selectEl, placeholder, rows) => {
-                resetSelect(selectEl, placeholder);
+            const fillSelect = (selectEl, placeholder, rows, enabled = true) => {
+                resetSelect(selectEl, placeholder, !enabled);
+                if (!enabled) return;
                 rows.forEach(row => {
                     const opt = document.createElement('option');
                     opt.value = row.ID;
                     opt.textContent = row.En_Name || row.Ar_Name || `Item ${row.ID}`;
                     if (row.En_Name) opt.dataset.en = row.En_Name;
                     if (row.Ar_Name) opt.dataset.ar = row.Ar_Name;
-                    if (row.Score !== undefined && row.Score !== null) opt.dataset.score = row.Score;
                     selectEl.appendChild(opt);
                 });
+                selectEl.disabled = false;
             };
 
-            const updateEmptyRow = () => {
-                const hasRows = selectionBody.querySelectorAll('tr[data-kind]').length > 0;
-                emptyRow.style.display = hasRows ? 'none' : 'table-row';
-            };
-
-            const updateTotals = () => {
-                let total = 0;
-                selectionBody.querySelectorAll('tr[data-kind]').forEach(row => {
-                    const val = parseFloat(row.querySelector('.score')?.textContent || '0');
-                    if (!Number.isNaN(val)) total += val;
-                });
-                totalScoreEl.textContent = total;
-                updateEmptyRow();
-            };
-
-            const removeRow = (kind) => {
-                const row = selectionBody.querySelector(`tr[data-kind="${kind}"]`);
-                if (row) row.remove();
-            };
-
-            const clearSelection = (kind) => {
-                const selectEl = selectMap[kind];
-                selectEl.value = '';
-                removeRow(kind);
-                updateTotals();
-            };
-
-            const upsertRow = (kind, opt) => {
-                let row = selectionBody.querySelector(`tr[data-kind="${kind}"]`);
-                if (!row) {
-                    row = document.createElement('tr');
-                    row.dataset.kind = kind;
-                    row.innerHTML = `
-                        <td class="pill"></td>
-                        <td class="en"></td>
-                        <td class="ar"></td>
-                        <td class="score"></td>
-                        <td class="actions"><button type="button" class="ghost">Remove</button></td>
-                    `;
-                    row.querySelector('button').addEventListener('click', () => clearSelection(kind));
-                    selectionBody.appendChild(row);
-                }
-                row.querySelector('.pill').textContent = selectLabels[kind];
-                row.querySelector('.en').textContent = opt.dataset.en || opt.textContent || '--';
-                row.querySelector('.ar').textContent = opt.dataset.ar || '--';
-                row.querySelector('.score').textContent = opt.dataset.score || '--';
-                updateTotals();
-            };
-
-            const handleChange = (kind, selectEl) => {
+            const readOption = (selectEl) => {
                 const opt = selectEl.selectedOptions[0];
-                if (!opt || !opt.value) {
-                    removeRow(kind);
-                    updateTotals();
+                if (!opt || !opt.value) return null;
+                return {
+                    id: Number(opt.value),
+                    en: opt.dataset.en || opt.textContent,
+                    ar: opt.dataset.ar || ''
+                };
+            };
+
+            const loadJobTitles = async () => {
+                const rows = await fetchJSON('/api/job-titles');
+                fillSelect(jobTitleSel, 'Choose job title', rows, true);
+            };
+
+            const loadCategories = async () => {
+                const rows = await fetchJSON('/api/categories');
+                fillSelect(categorySel, 'Choose category', rows, true);
+            };
+
+            const loadSubcategories = async (categoryId) => {
+                resetSelect(subcategorySel, categoryId ? 'Choose subcategory' : 'Pick category first', true);
+                resetSelect(criteriaSel, 'Pick subcategory first', true);
+                if (!categoryId) return;
+                const rows = await fetchJSON(`/api/subcategories?categoryId=${categoryId}`);
+                fillSelect(subcategorySel, 'Choose subcategory', rows, true);
+            };
+
+            const loadCriteria = async (subcategoryId) => {
+                resetSelect(criteriaSel, subcategoryId ? 'Choose criteria' : 'Pick subcategory first', true);
+                if (!subcategoryId) return;
+                const rows = await fetchJSON(`/api/criteria?subcategoryId=${subcategoryId}`);
+                fillSelect(criteriaSel, 'Choose criteria', rows, true);
+            };
+
+            const validateSelection = (selection) => {
+                if (!selection.jobTitle) return 'Please select a job title';
+                if (!selection.category) return 'Please select a category';
+                if (!selection.subcategory) return 'Please select a subcategory';
+                if (!selection.criteria) return 'Please select a criteria';
+                if (Number.isNaN(selection.score)) return 'Please enter a numeric score';
+                return '';
+            };
+
+            addRowBtn.addEventListener('click', async () => {
+                const selection = {
+                    jobTitle: readOption(jobTitleSel),
+                    category: readOption(categorySel),
+                    subcategory: readOption(subcategorySel),
+                    criteria: readOption(criteriaSel),
+                    score: parseFloat(scoreInput.value)
+                };
+
+                const error = validateSelection(selection);
+                if (error) {
+                    setStatus(error);
                     return;
                 }
-                upsertRow(kind, opt);
-            };
 
-            async function loadAllOptions() {
-                setStatus('Loading all dropdown data...');
+                setStatus('Saving...');
                 try {
-                    const [categories, subcategories, criteria, jobTitles] = await Promise.all([
-                        fetchJSON('/api/categories'),
-                        fetchJSON('/api/subcategories'),
-                        fetchJSON('/api/criteria'),
-                        fetchJSON('/api/job-titles'),
-                    ]);
-                    fillSelect(categorySel, 'Choose category', categories);
-                    fillSelect(subcategorySel, 'Choose subcategory', subcategories);
-                    fillSelect(criteriaSel, 'Choose criteria', criteria);
-                    fillSelect(jobTitleSel, 'Choose job title', jobTitles);
+                    const res = await fetch('/api/job-title-criteria', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            jobTitleId: selection.jobTitle.id,
+                            criteriaId: selection.criteria.id,
+                            fullScore: selection.score
+                        })
+                    });
+                    const body = await res.json();
+                    if (!res.ok) {
+                        throw new Error(body?.error || 'Failed to insert row');
+                    }
+
+                    scoreInput.value = '';
+                    setStatus('Inserted successfully');
+                } catch (err) {
+                    console.error(err);
+                    setStatus(err.message);
+                }
+            });
+
+            jobTitleSel.addEventListener('change', () => setStatus(''));
+            categorySel.addEventListener('change', (e) => {
+                setStatus('');
+                loadSubcategories(Number(e.target.value));
+            });
+            subcategorySel.addEventListener('change', (e) => {
+                setStatus('');
+                loadCriteria(Number(e.target.value));
+            });
+            criteriaSel.addEventListener('change', () => setStatus(''));
+
+            (async function init() {
+                setStatus('Loading dropdowns...');
+                try {
+                    await Promise.all([loadJobTitles(), loadCategories()]);
+                    resetSelect(subcategorySel, 'Pick category first', true);
+                    resetSelect(criteriaSel, 'Pick subcategory first', true);
                     setStatus('');
                 } catch (err) {
                     console.error(err);
                     setStatus('Failed to load dropdown data. Check server logs.');
                 }
-            }
-
-            Object.entries(selectMap).forEach(([kind, selectEl]) => {
-                selectEl.addEventListener('change', () => handleChange(kind, selectEl));
-            });
-
-            loadAllOptions();
+            })();
         </script>
     </body>
     </html>

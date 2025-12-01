@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 import pyodbc
 
+from candidate_request import candidate_request_page
 from create_request import request_create_page
 from page_view import CVScreen
 
@@ -161,6 +162,45 @@ def get_job_titles():
     return jsonify(data), status
 
 
+@app.post("/api/job-title-criteria")
+def add_job_title_criteria():
+    """Insert a new mapping of job title -> criteria with a score."""
+    payload = request.get_json(silent=True) or {}
+    job_title_id = payload.get("jobTitleId")
+    criteria_id = payload.get("criteriaId")
+    full_score = payload.get("fullScore")
+    user_id = payload.get("userId", 1)
+
+    if job_title_id is None or criteria_id is None or full_score is None:
+        return jsonify({"error": "jobTitleId, criteriaId and fullScore are required"}), 400
+
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO Core_JobTitle_CVPoints (
+                    JobTitle_Id,
+                    PointsCriteriaId,
+                    FullScore,
+                    Is_Delete,
+                    Creat_User_ID,
+                    Create_Date,
+                    Last_Update_User_ID,
+                    Last_Update_Date
+                )
+                VALUES (?, ?, ?, 0, ?, GETDATE(), ?, GETDATE());
+                """,
+                (job_title_id, criteria_id, full_score, user_id, user_id),
+            )
+            cursor.execute("SELECT SCOPE_IDENTITY() AS InsertedId;")
+            new_id = cursor.fetchone()[0]
+            conn.commit()
+        return jsonify({"id": int(new_id) if new_id is not None else None}), 201
+    except Exception as exc:  # pragma: no cover - bubbled to API
+        return jsonify({"error": str(exc)}), 500
+
+
 @app.get("/")
 def index():
     return CVScreen.render()
@@ -168,6 +208,7 @@ def index():
 
 request_create_page(app, fetch_rows, get_connection)
 analyze_resume_page(app, fetch_rows)
+candidate_request_page(app)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
