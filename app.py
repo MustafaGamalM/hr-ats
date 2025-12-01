@@ -8,6 +8,8 @@ import pyodbc
 from create_request import request_create_page
 from page_view import CVScreen
 
+from analyze_resume_api import analyze_resume_page
+
 load_dotenv()
 
 app = Flask(__name__)
@@ -165,6 +167,7 @@ def index():
 
 
 request_create_page(app, fetch_rows, get_connection)
+analyze_resume_page(app, fetch_rows)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analyze Resume</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 650px;
+            margin: auto;
+            background: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+        }
+        h2 {
+            margin-top: 0;
+        }
+        label {
+            font-weight: bold;
+        }
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 10px;
+            margin-top: 6px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+        }
+        button {
+            padding: 12px 20px;
+            border: none;
+            background: #007bff;
+            color: white;
+            border-radius: 6px;
+            font-size: 15px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0063d4;
+        }
+        pre {
+            white-space: pre-wrap;
+            background: #222;
+            color: #0f0;
+            padding: 20px;
+            border-radius: 8px;
+            margin-top: 25px;
+            max-height: 400px;
+            overflow: auto;
+        }
+        .loading {
+            color: #333;
+            margin-top: 10px;
+        }
+        .error {
+            color: red; 
+            margin-top: 10px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+<div class="container">
+    <h2>Analyze Resume</h2>
+
+    <form id="analyzeForm">
+        <label>Request ID:</label>
+        <input type="text" id="request_id" required />
+
+        <label>Resume PDF:</label>
+        <input type="file" id="file" accept="application/pdf" required />
+
+        <button type="submit">Upload & Analyze</button>
+    </form>
+
+    <div id="loading" class="loading" style="display:none;">
+        Processing… please wait.
+    </div>
+
+    <div id="error" class="error"></div>
+
+    <h3>Result:</h3>
+    <pre id="resultLog">{}</pre>
+</div>
+
+<script>
+document.getElementById("analyzeForm").addEventListener("submit", async function(event) {
+    event.preventDefault();
+
+    const fileInput = document.getElementById("file");
+    const reqId = document.getElementById("request_id").value;
+    const resultLog = document.getElementById("resultLog");
+    const loading = document.getElementById("loading");
+    const errorBox = document.getElementById("error");
+
+    errorBox.textContent = "";
+    resultLog.textContent = "{}";
+
+    if (!fileInput.files.length) {
+        errorBox.textContent = "Please select a PDF file.";
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    formData.append("request_id", reqId);
+
+    loading.style.display = "block";
+
+    try {
+        const res = await fetch("/api/analyze-resume", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await res.json();
+        loading.style.display = "none";
+
+        if (!res.ok) {
+            errorBox.textContent = data.error || "Unknown error";
+            return;
+        }
+
+        // Log JSON result in pretty format
+        resultLog.textContent = JSON.stringify(data, null, 4);
+
+    } catch (err) {
+        loading.style.display = "none";
+        errorBox.textContent = "Request failed: " + err.message;
+    }
+});
+</script>
+
+</body>
+</html>
