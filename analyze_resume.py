@@ -35,6 +35,19 @@ JOIN dbo.Core_CVPointsCategories AS pca
 WHERE rec.Request_ID = ?
 """
 
+STATIC_SUBCATEGORIES = [
+    "Years of Experience",
+    "Job Title Match",
+    "Industry Match",
+    "Job Level",
+    "Degree Level",
+    "Field of Study",
+    "Certifications",
+    "Technical Skills",
+    "Soft Skills",
+    "Keywords Match"
+]
+
 def _safe_extract_json(text: str) -> Any:
     """
     Extract and parse the first JSON object or array found in `text`.
@@ -215,6 +228,16 @@ def _parse_gemini_response_for_json(response):
         error_msg += "\nSample errors:\n" + "\n".join(last_errors[:8])
     raise ValueError(error_msg)
 
+def enforce_static_subcategories(parsed_result: dict) -> dict:
+    """
+    Return a dict containing exactly the STATIC_SUBCATEGORIES as keys.
+    - If parsed_result contains a value for a key, keep it.
+    - Otherwise set the key value to None (which becomes JSON null).
+    """
+    if not isinstance(parsed_result, dict):
+        parsed_result = {}
+    return {k: (parsed_result.get(k) if k in parsed_result else None) for k in STATIC_SUBCATEGORIES}
+
 def send_prompt_and_pdf_to_gemini(
     request_id: int,
     base64_file: str,
@@ -269,7 +292,13 @@ def send_prompt_and_pdf_to_gemini(
         except Exception:
             percent = 0
 
-        out = {"result": parsed, "percent": percent}
+        normalized = enforce_static_subcategories(parsed)
+
+        out = {
+            "result": normalized,
+            "percent": percent if isinstance(percent, int) else None
+        }
+
         if return_raw_response:
             out["raw"] = raw_response
 
