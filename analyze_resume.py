@@ -228,15 +228,34 @@ def _parse_gemini_response_for_json(response):
         error_msg += "\nSample errors:\n" + "\n".join(last_errors[:8])
     raise ValueError(error_msg)
 
-def enforce_static_subcategories(parsed_result: dict) -> dict:
+def enforce_static_subcategories(parsed_result: dict) -> list:
     """
-    Return a dict containing exactly the STATIC_SUBCATEGORIES as keys.
-    - If parsed_result contains a value for a key, keep it.
-    - Otherwise set the key value to None (which becomes JSON null).
+    Convert the model response into the final required array structure.
     """
     if not isinstance(parsed_result, dict):
         parsed_result = {}
-    return {k: (parsed_result.get(k) if k in parsed_result else None) for k in STATIC_SUBCATEGORIES}
+
+    result_array = []
+
+    for idx, name in enumerate(STATIC_SUBCATEGORIES, start=1):
+        raw_score = parsed_result.get(name)
+        if raw_score is None:
+            out_score = None
+        else:
+            try:
+                fv = float(raw_score)
+                out_score = int(fv) if fv.is_integer() else fv
+            except Exception:
+                out_score = None
+
+        result_array.append({
+            "subCategoryID": idx,
+            "subCategoryName": name,
+            "subCategoryScore": out_score
+        })
+
+    return result_array
+
 
 def send_prompt_and_pdf_to_gemini(
     request_id: int,
