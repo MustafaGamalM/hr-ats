@@ -8,6 +8,7 @@ import pyodbc
 from candidate_request import candidate_request_page
 from create_request import request_create_page
 from page_view import CVScreen
+from score_results import score_results_page
 
 from analyze_resume_api import analyze_resume_page
 
@@ -209,6 +210,7 @@ def index():
 request_create_page(app, fetch_rows, get_connection)
 analyze_resume_page(app, fetch_rows)
 candidate_request_page(app, fetch_rows)
+score_results_page(app, fetch_rows)
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

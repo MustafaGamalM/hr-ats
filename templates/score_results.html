@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Candidate Scores</title>
+    <style>
+        :root {
+            --bg: #0b1723;
+            --panel: #0f1f2f;
+            --card: #13283c;
+            --accent: #4cc3ff;
+            --muted: #9bb0c5;
+            --text: #e8f1fb;
+            --success: #6fe3b5;
+            --danger: #ff8f8f;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+            background: radial-gradient(circle at 15% 20%, #123255, var(--bg));
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+        .shell {
+            width: min(1080px, 100%);
+            background: linear-gradient(135deg, var(--panel), #0c1a28);
+            border: 1px solid rgba(255,255,255,0.06);
+            border-radius: 18px;
+            box-shadow: 0 28px 80px rgba(0,0,0,0.35);
+            padding: 28px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 18px;
+        }
+        h1 {
+            margin: 0;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+        .lede {
+            color: var(--muted);
+            margin: 4px 0 0;
+            font-size: 14px;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        button, select {
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 10px;
+            background: #0c1a28;
+            color: var(--text);
+            padding: 10px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: border 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+        }
+        button.primary {
+            background: linear-gradient(90deg, var(--accent), #78d7ff);
+            color: #081420;
+            border: none;
+            font-weight: 700;
+        }
+        button:hover, select:hover {
+            border-color: var(--accent);
+        }
+        button:active {
+            transform: translateY(1px);
+        }
+        .table-wrap {
+            background: var(--card);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            color: var(--text);
+        }
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            font-size: 14px;
+        }
+        th {
+            background: rgba(255,255,255,0.04);
+            font-weight: 700;
+            letter-spacing: 0.01em;
+        }
+        tr:nth-child(even) td {
+            background: rgba(255,255,255,0.02);
+        }
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-weight: 700;
+            background: rgba(76,195,255,0.12);
+            color: var(--accent);
+        }
+        .status {
+            margin-top: 12px;
+            font-size: 13px;
+            color: var(--muted);
+        }
+        .error {
+            color: var(--danger);
+            font-weight: 700;
+        }
+        .empty {
+            text-align: center;
+            padding: 28px;
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body>
+    <div class="shell">
+        <div class="header">
+            <div>
+                <h1>Candidate Scores</h1>
+                <p class="lede">Live rankings from Core_CvScore x Core_CvCandidate.</p>
+            </div>
+            <div class="actions">
+                <select id="order">
+                    <option value="desc">Highest first</option>
+                    <option value="asc">Lowest first</option>
+                </select>
+                <button id="reload" class="primary">Refresh</button>
+            </div>
+        </div>
+
+        <div class="table-wrap" id="tableWrap">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 120px;">Candidate ID</th>
+                        <th>Name</th>
+                        <th style="width: 160px;">Total Score</th>
+                    </tr>
+                </thead>
+                <tbody id="scoreBody">
+                    <tr><td class="empty" colspan="3">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="status" id="status"></div>
+    </div>
+
+    <script>
+        const orderSelect = document.getElementById('order');
+        const reloadBtn = document.getElementById('reload');
+        const bodyEl = document.getElementById('scoreBody');
+        const statusEl = document.getElementById('status');
+
+        const setStatus = (msg, isError = false) => {
+            statusEl.textContent = msg || '';
+            statusEl.className = isError ? 'status error' : 'status';
+        };
+
+        const renderRows = (rows) => {
+            if (!Array.isArray(rows) || rows.length === 0) {
+                bodyEl.innerHTML = '<tr><td class="empty" colspan="3">No scores found.</td></tr>';
+                return;
+            }
+
+            bodyEl.innerHTML = rows.map((row, idx) => {
+                const score = row.TotalScore ?? row.totalScore ?? 0;
+                const name = row.CandidateName ?? row.candidateName ?? 'Unknown';
+                const id = row.CandidateId ?? row.candidateId ?? '';
+                return `
+                    <tr>
+                        <td>${id}</td>
+                        <td>${name}</td>
+                        <td><span class="pill">${score}</span></td>
+                    </tr>
+                `;
+            }).join('');
+        };
+
+        const loadScores = async () => {
+            const order = orderSelect.value || 'desc';
+            setStatus('Loading...');
+            bodyEl.innerHTML = '<tr><td class="empty" colspan="3">Loading...</td></tr>';
+            try {
+                const res = await fetch(`/api/score-results?order=${order}`);
+                const data = await res.json();
+                if (!res.ok) {
+                    throw new Error(data?.error || `Request failed (${res.status})`);
+                }
+                renderRows(data);
+                setStatus(`Showing ${data.length} rows (${order === 'desc' ? 'highest first' : 'lowest first'}).`);
+            } catch (err) {
+                console.error(err);
+                bodyEl.innerHTML = '<tr><td class="empty" colspan="3">Failed to load scores.</td></tr>';
+                setStatus(err.message || 'Failed to load scores', true);
+            }
+        };
+
+        orderSelect.addEventListener('change', loadScores);
+        reloadBtn.addEventListener('click', loadScores);
+
+        loadScores();
+    </script>
+</body>
+</html>
