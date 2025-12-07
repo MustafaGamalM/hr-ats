@@ -128,6 +128,65 @@
             padding: 28px;
             color: var(--muted);
         }
+        .clickable {
+            cursor: pointer;
+            transition: background 120ms ease;
+        }
+        .clickable:hover td {
+            background: rgba(76,195,255,0.07);
+        }
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            z-index: 10;
+        }
+        .modal {
+            width: min(520px, 100%);
+            background: var(--panel);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+            padding: 18px;
+        }
+        .modal-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        .modal h3 {
+            margin: 0;
+        }
+        .close-btn {
+            background: none;
+            border: 1px solid rgba(255,255,255,0.12);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 6px 10px;
+            cursor: pointer;
+        }
+        .breakdown {
+            border-top: 1px solid rgba(255,255,255,0.08);
+            margin-top: 10px;
+            padding-top: 10px;
+        }
+        .breakdown-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            font-size: 14px;
+        }
+        .pill.small {
+            padding: 4px 8px;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -135,7 +194,7 @@
         <div class="header">
             <div>
                 <h1>Candidate Scores</h1>
-                <p class="lede">Live rankings from Core_CvScore x Core_CvCandidate.</p>
+                <p class="lede">Totals from Core_CvScore grouped by candidate request.</p>
             </div>
             <div class="actions">
                 <select id="order">
@@ -150,17 +209,31 @@
             <table>
                 <thead>
                     <tr>
-                        <th style="width: 120px;">Candidate ID</th>
+                        <th style="width: 150px;">Candidate Request</th>
                         <th>Name</th>
-                        <th style="width: 160px;">Total Score</th>
+                        <th style="width: 140px;">Job Request</th>
+                        <th style="width: 130px;">Total Score</th>
                     </tr>
                 </thead>
                 <tbody id="scoreBody">
-                    <tr><td class="empty" colspan="3">Loading...</td></tr>
+                    <tr><td class="empty" colspan="4">Loading...</td></tr>
                 </tbody>
             </table>
         </div>
         <div class="status" id="status"></div>
+    </div>
+
+    <div class="modal-backdrop" id="modal">
+        <div class="modal">
+            <div class="modal-head">
+                <div>
+                    <h3 id="modalTitle">Scores</h3>
+                    <div class="lede" id="modalSubtitle"></div>
+                </div>
+                <button class="close-btn" id="closeModal">Close</button>
+            </div>
+            <div id="modalBody" class="breakdown">Loading...</div>
+        </div>
     </div>
 
     <script>
@@ -168,6 +241,17 @@
         const reloadBtn = document.getElementById('reload');
         const bodyEl = document.getElementById('scoreBody');
         const statusEl = document.getElementById('status');
+        const modalEl = document.getElementById('modal');
+        const modalBody = document.getElementById('modalBody');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalSubtitle = document.getElementById('modalSubtitle');
+        const closeModalBtn = document.getElementById('closeModal');
+
+        const formatScore = (raw) => {
+            const num = Number(raw ?? 0);
+            if (!Number.isFinite(num)) return 0;
+            return Number.isInteger(num) ? num : num.toFixed(2);
+        };
 
         const setStatus = (msg, isError = false) => {
             statusEl.textContent = msg || '';
@@ -176,19 +260,23 @@
 
         const renderRows = (rows) => {
             if (!Array.isArray(rows) || rows.length === 0) {
-                bodyEl.innerHTML = '<tr><td class="empty" colspan="3">No scores found.</td></tr>';
+                bodyEl.innerHTML = '<tr><td class="empty" colspan="4">No scores found.</td></tr>';
                 return;
             }
 
             bodyEl.innerHTML = rows.map((row, idx) => {
-                const score = row.TotalScore ?? row.totalScore ?? 0;
+                const scoreDisplay = formatScore(row.TotalScore ?? row.totalScore ?? 0);
                 const name = row.CandidateName ?? row.candidateName ?? 'Unknown';
-                const id = row.CandidateId ?? row.candidateId ?? '';
+                const candidateId = row.CandidateId ?? row.candidateId ?? '';
+                const candidateRequestId = row.CandidateRequestId ?? row.candidateRequestId ?? '';
+                const jobRequestId = row.JobRequestId ?? row.jobRequestId ?? '';
+                const nameDisplay = candidateId ? `#${candidateId} - ${name}` : name;
                 return `
-                    <tr>
-                        <td>${id}</td>
-                        <td>${name}</td>
-                        <td><span class="pill">${score}</span></td>
+                    <tr class="clickable" data-candidate-request="${candidateRequestId}" data-name="${nameDisplay}" data-job-request="${jobRequestId}">
+                        <td>${candidateRequestId || '-'}</td>
+                        <td>${nameDisplay}</td>
+                        <td>${jobRequestId || '-'}</td>
+                        <td><span class="pill">${scoreDisplay}</span></td>
                     </tr>
                 `;
             }).join('');
@@ -197,7 +285,7 @@
         const loadScores = async () => {
             const order = orderSelect.value || 'desc';
             setStatus('Loading...');
-            bodyEl.innerHTML = '<tr><td class="empty" colspan="3">Loading...</td></tr>';
+            bodyEl.innerHTML = '<tr><td class="empty" colspan="4">Loading...</td></tr>';
             try {
                 const res = await fetch(`/api/score-results?order=${order}`);
                 const data = await res.json();
@@ -205,16 +293,73 @@
                     throw new Error(data?.error || `Request failed (${res.status})`);
                 }
                 renderRows(data);
-                setStatus(`Showing ${data.length} rows (${order === 'desc' ? 'highest first' : 'lowest first'}).`);
+                setStatus(`Showing ${data.length} candidate request(s) (${order === 'desc' ? 'highest first' : 'lowest first'}).`);
             } catch (err) {
                 console.error(err);
-                bodyEl.innerHTML = '<tr><td class="empty" colspan="3">Failed to load scores.</td></tr>';
+                bodyEl.innerHTML = '<tr><td class="empty" colspan="4">Failed to load scores.</td></tr>';
                 setStatus(err.message || 'Failed to load scores', true);
             }
         };
 
         orderSelect.addEventListener('change', loadScores);
         reloadBtn.addEventListener('click', loadScores);
+
+        const openModal = (title, subtitle) => {
+            modalTitle.textContent = title || 'Scores';
+            modalSubtitle.textContent = subtitle || '';
+            modalEl.style.display = 'flex';
+        };
+
+        const closeModal = () => {
+            modalEl.style.display = 'none';
+        };
+
+        closeModalBtn.addEventListener('click', closeModal);
+        modalEl.addEventListener('click', (e) => {
+            if (e.target === modalEl) closeModal();
+        });
+
+        const renderBreakdown = (rows) => {
+            if (!Array.isArray(rows) || rows.length === 0) {
+                modalBody.innerHTML = '<div class="lede">No subcategory scores found.</div>';
+                return;
+            }
+            modalBody.innerHTML = rows.map(r => {
+                const scName = r.SubCategoryName || r.subCategoryName || `Sub ${r.SubCategoryId || r.subCategoryId || ''}`;
+                const scoreVal = formatScore(r.Score ?? r.score ?? 0);
+                return `
+                    <div class="breakdown-row">
+                        <div>${scName}</div>
+                        <div><span class="pill small">${scoreVal}</span></div>
+                    </div>
+                `;
+            }).join('');
+        };
+
+        const loadBreakdown = async (candidateRequestId, label) => {
+            openModal(`Candidate Request ${candidateRequestId}`, label || '');
+            modalBody.innerHTML = '<div class="lede">Loading...</div>';
+            try {
+                const res = await fetch(`/api/score-results/${candidateRequestId}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+                renderBreakdown(data);
+            } catch (err) {
+                console.error(err);
+                modalBody.innerHTML = `<div class="lede error">${err.message || 'Failed to load breakdown.'}</div>`;
+            }
+        };
+
+        bodyEl.addEventListener('click', (e) => {
+            const row = e.target.closest('tr[data-candidate-request]');
+            if (!row) return;
+            const candidateRequestId = row.dataset.candidateRequest;
+            if (!candidateRequestId) return;
+            const name = row.dataset.name || '';
+            const jobReq = row.dataset.jobRequest ? `Job Request: ${row.dataset.jobRequest}` : '';
+            const subtitle = [name, jobReq].filter(Boolean).join(' | ');
+            loadBreakdown(candidateRequestId, subtitle);
+        });
 
         loadScores();
     </script>
