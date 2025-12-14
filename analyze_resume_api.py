@@ -3,7 +3,7 @@ from typing import Iterable, Tuple
 from flask import render_template, request, jsonify
 import json
 import pyodbc
-from analyze_resume import send_prompt_and_pdf_to_gemini
+from analyze_resume_ollama import send_prompt_and_pdf_to_gemini
 
 def analyze_resume_page(app, fetch_rows):
     """
