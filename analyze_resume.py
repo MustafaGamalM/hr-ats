@@ -4,6 +4,7 @@ import base64
 import os
 from typing import Dict, Any
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from asyncio.windows_events import NULL
 
@@ -256,6 +257,48 @@ def enforce_static_subcategories(parsed_result: dict) -> list:
 
     return result_array
 
+def format_dynamic_subcategories(parsed_result: dict, rows: list) -> list:
+    """
+    Convert the model response into the final required array structure
+    using dynamic subcategories directly from the database rows.
+    """
+    if not isinstance(parsed_result, dict):
+        parsed_result = {}
+
+    # Extract unique subcategories and their actual database IDs
+    seen_ids = set()
+    dynamic_subcategories = []
+    
+    for r in rows:
+        sc_id = r.get("SubCategoryId")
+        sc_name = r.get("SubCategoryName")
+        
+        # Ensure we only add each subcategory once
+        if sc_id and sc_name and sc_id not in seen_ids:
+            seen_ids.add(sc_id)
+            dynamic_subcategories.append((sc_id, sc_name))
+
+    result_array = []
+
+    for sc_id, name in dynamic_subcategories:
+        raw_score = parsed_result.get(name)
+        
+        if raw_score is None:
+            out_score = None
+        else:
+            try:
+                fv = float(raw_score)
+                out_score = int(fv) if fv.is_integer() else fv
+            except Exception:
+                out_score = None
+
+        result_array.append({
+            "subCategoryID": sc_id,  # Uses the real DB ID now!
+            "subCategoryName": name,
+            "subCategoryScore": out_score
+        })
+
+    return result_array
 
 def send_prompt_and_pdf_to_gemini(
     request_id: int,
@@ -274,6 +317,14 @@ def send_prompt_and_pdf_to_gemini(
     try:
         prompts = build_gemini_prompt(request_id, fetch_rows)
         rows = prompts.get("rows", [])
+
+        if not rows:
+            return {
+                "result": [],
+                "percent": 0,
+                "error": f"No criteria found in the database for request_id {request_id}. Skipping Gemini analysis."
+            }
+
         if not isinstance(prompts, dict) or "system" not in prompts or "user" not in prompts:
             raise ValueError("build_gemini_prompt did not return expected dict with 'system' and 'user' keys.")
 
@@ -300,7 +351,12 @@ def send_prompt_and_pdf_to_gemini(
         # Send to Gemini
         raw_response = GEMINI_CLIENT.models.generate_content(
             model=model,
-            contents=content_parts
+            contents=content_parts,
+            config=types.GenerateContentConfig(
+                temperature=0.0, 
+                seed=42, 
+                response_mime_type="application/json" 
+            )
         )
 
         # Parse JSON using existing helper
@@ -311,7 +367,8 @@ def send_prompt_and_pdf_to_gemini(
         except Exception:
             percent = 0
 
-        normalized = enforce_static_subcategories(parsed)
+        # Pass the database rows so the function knows what the dynamic categories are
+        normalized = format_dynamic_subcategories(parsed, rows)
 
         out = {
             "result": normalized,
