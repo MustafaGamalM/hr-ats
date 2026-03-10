@@ -4,6 +4,7 @@ from typing import Iterable, Tuple
 from dotenv import load_dotenv
 from flask import Flask, jsonify, request
 import pyodbc
+from waitress import serve
 
 from candidate_request import candidate_request_page
 from create_request import request_create_page
@@ -213,4 +214,7 @@ candidate_request_page(app, fetch_rows)
 score_results_page(app, fetch_rows)
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    port = int(os.getenv("PORT", "5000"))
+    serve(app, host="0.0.0.0", port=port)
+
+
