@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bulk Resume Analysis</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: #f9f9f9; color: #333; }
+        .card { background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { margin-top: 0; color: #111; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        label { font-weight: bold; display: block; margin-bottom: 8px; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 10px; margin-bottom: 20px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; padding: 12px 20px; font-size: 16px; border-radius: 4px; cursor: pointer; transition: background 0.3s; }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        
+        .status-box { background: #e9ecef; padding: 15px; border-radius: 4px; margin-bottom: 20px; text-align: center; font-weight: bold; display: none; }
+        .progress-bar-container { width: 100%; background-color: #ddd; border-radius: 4px; margin-top: 10px; overflow: hidden; display: none; }
+        .progress-bar { height: 20px; background-color: #28a745; width: 0%; transition: width 0.5s ease; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f2f2f2; }
+        .success { color: #28a745; font-weight: bold; }
+        .error { color: #dc3545; font-weight: bold; }
+        #results-container { display: none; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 12px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Upload Resumes in Bulk</h2>
+        <form id="upload-form">
+            <label for="request_id">Job Request ID:</label>
+            <input type="text" id="request_id" placeholder="e.g. 1" required />
+
+            <label for="files">Select PDF Resumes (Multiple allowed):</label>
+            <input type="file" id="files" accept="application/pdf" multiple required />
+
+            <button type="submit" id="submit-btn">Upload & Analyze Batch</button>
+        </form>
+    </div>
+
+    <div class="card" id="status-card" style="display: none;">
+        <h2>Batch Processing Status</h2>
+        <div class="status-box" id="status-text">Uploading...</div>
+        <div class="progress-bar-container" id="progress-container">
+            <div class="progress-bar" id="progress-bar"></div>
+        </div>
+        <div id="status-details" style="margin-top: 10px; font-family: monospace;"></div>
+    </div>
+
+    <div class="card" id="results-container">
+        <h2>Final Results</h2>
+        <table id="results-table">
+            <thead>
+                <tr>
+                    <th>CV File Name</th>
+                    <th>Status</th>
+                    <th>AI Extracted Score/Result</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Populated via JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        const form = document.getElementById('upload-form');
+        const submitBtn = document.getElementById('submit-btn');
+        const statusCard = document.getElementById('status-card');
+        const statusText = document.getElementById('status-text');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const statusDetails = document.getElementById('status-details');
+        const resultsContainer = document.getElementById('results-container');
+        const resultsTableBody = document.querySelector('#results-table tbody');
+
+        let isPolling = false;
+
+        // Helper: Convert File to Base64
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => resolve(reader.result.split(',')[1]); // Strip data url prefix
+                reader.onerror = error => reject(error);
+            });
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const requestId = document.getElementById('request_id').value;
+            const files = document.getElementById('files').files;
+            
+            if (!requestId || files.length === 0) return;
+
+            submitBtn.disabled = true;
+            statusCard.style.display = 'block';
+            statusText.style.display = 'block';
+            statusText.innerText = `Preparing ${files.length} resumes...`;
+            resultsContainer.style.display = 'none';
+
+            try {
+                // Convert all files to payload array
+                const payload = [];
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const base64Str = await fileToBase64(file);
+                    payload.push({
+                        id: file.name, // Using filename as ID for UI clarity
+                        request_id: parseInt(requestId),
+                        base64_file: base64Str
+                    });
+                }
+
+                statusText.innerText = "Dispatching to bulk processor...";
+
+                // Submit to API
+                const res = await fetch('/api/analyze-resume-bulk', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+
+                if (!res.ok) throw new Error(data.error || "Failed to enqueue batch");
+
+                const batchId = data.batch_id;
+                statusText.innerText = `Batch Submitted. ID: ${batchId}`;
+                progressContainer.style.display = 'block';
+                
+                // Start tracking progress
+                isPolling = true;
+                pollBatchStatus(batchId);
+
+            } catch (err) {
+                statusText.innerText = `Error: ${err.message}`;
+                statusText.style.background = '#f8d7da';
+                statusText.style.color = '#721c24';
+                submitBtn.disabled = false;
+            }
+        });
+
+        async function pollBatchStatus(batchId) {
+            if (!isPolling) return;
+
+            try {
+                const res = await fetch(`/api/analyze-resume-batch/${batchId}`);
+                const statusData = await res.json();
+
+                if (res.ok) {
+                    const total = statusData.total;
+                    const counts = statusData.status_counts;
+                    const finished = (counts.COMPLETED || 0) + (counts.FAILED || 0);
+
+                    // Update UI Details
+                    statusDetails.innerHTML = `
+                        Total: <b>${total}</b> | 
+                        Pending: <b>${counts.PENDING || 0}</b> | 
+                        Processing: <b>${counts.PROCESSING || 0}</b> | 
+                        Completed: <b class="success">${counts.COMPLETED || 0}</b> | 
+                        Failed: <b class="error">${counts.FAILED || 0}</b>
+                    `;
+
+                    // Update Progress Bar
+                    const percentage = total > 0 ? (finished / total) * 100 : 0;
+                    progressBar.style.width = `${percentage}%`;
+                    statusText.innerText = `Processing: ${Math.round(percentage)}% finished`;
+
+                    // If complete, fetch results
+                    if (finished >= total && total > 0) {
+                        isPolling = false;
+                        statusText.innerText = "Processing Complete! Fetching results...";
+                        statusText.style.background = '#d4edda';
+                        statusText.style.color = '#155724';
+                        await fetchAndRenderResults(batchId);
+                        submitBtn.disabled = false;
+                    } else {
+                        // Keep polling after 3 seconds
+                        setTimeout(() => pollBatchStatus(batchId), 3000);
+                    }
+                } else {
+                    statusText.innerText = "Failed to fetch status. Retrying...";
+                    setTimeout(() => pollBatchStatus(batchId), 3000);
+                }
+
+            } catch (err) {
+                console.error("Polling error:", err);
+                setTimeout(() => pollBatchStatus(batchId), 3000); // Retry silently
+            }
+        }
+
+        async function fetchAndRenderResults(batchId) {
+            try {
+                const res = await fetch(`/api/analyze-resume-batch/${batchId}/results`);
+                const resultData = await res.json();
+
+                if (!res.ok) throw new Error(resultData.error || "Failed to map results");
+
+                resultsTableBody.innerHTML = ''; // Clear prev
+
+                resultData.data.forEach(item => {
+                    const tr = document.createElement('tr');
+                    
+                    const nameTd = document.createElement('td');
+                    nameTd.innerText = item.id;
+                    
+                    const statusTd = document.createElement('td');
+                    if (item.status === 'COMPLETED') {
+                        statusTd.innerHTML = `<span class="success">Completed</span>`;
+                    } else {
+                        statusTd.innerHTML = `<span class="error">Failed</span>`;
+                    }
+
+                    const resultTd = document.createElement('td');
+                    if (item.status === 'COMPLETED' && item.result) {
+                        resultTd.innerHTML = `<pre>${JSON.stringify(item.result, null, 2)}</pre>`;
+                    } else {
+                        resultTd.innerHTML = `<div class="error">${item.error || 'Unknown Error'}</div>`;
+                    }
+
+                    tr.appendChild(nameTd);
+                    tr.appendChild(statusTd);
+                    tr.appendChild(resultTd);
+                    resultsTableBody.appendChild(tr);
+                });
+
+                resultsContainer.style.display = 'block';
+
+            } catch (err) {
+                statusText.innerText = `Error loading final results: ${err.message}`;
+                statusText.style.background = '#f8d7da';
+            }
+        }
+    </script>
+</body>
+</html>

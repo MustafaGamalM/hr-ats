@@ -3,3 +3,4 @@ python-dotenv>=1.0.0
 pyodbc>=5.0.0
 google-genai>=1.0.0
 waitress>=3.0.0
+tenacity>=8.0.0

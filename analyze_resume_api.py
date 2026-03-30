@@ -3,15 +3,21 @@ from typing import Iterable, Tuple
 from flask import render_template, request, jsonify
 import json
 import pyodbc
+import uuid
 from analyze_resume import send_prompt_and_pdf_to_gemini
+from analyze_resume_bulk import enqueue_resumes
 
 def analyze_resume_page(app, fetch_rows):
     """
     Register routes for analyzing/rescoring resumes.
 
     Routes:
-      - GET  /pages/analyze-resume   -> simple upload page (optional template)
-      - POST /api/analyze-resume     -> accepts multipart file + request_id OR JSON with base64_file + request_id
+      - GET  /pages/analyze-resume               -> simple upload page
+      - GET  /pages/analyze-resume-bulk          -> bulk upload page UI
+      - POST /api/analyze-resume                 -> accepts multipart file + request_id OR JSON
+      - POST /api/analyze-resume-bulk            -> bulk uploads resumes
+      - GET  /api/analyze-resume-batch/<batch_id> -> gets status counts of a batch
+      - GET  /api/analyze-resume-batch/<batch_id>/results -> gets the final parsed data
     """
 
     @app.get("/pages/analyze-resume")
@@ -37,6 +43,16 @@ def analyze_resume_page(app, fetch_rows):
               </body>
             </html>
             """, 200
+
+    @app.get("/pages/analyze-resume-bulk")
+    def analyze_resume_bulk_page():
+        """
+        Serves the frontend page that orchestrates the bulk resume upload logic.
+        """
+        try:
+            return render_template("analyze_resume_bulk.html")
+        except Exception as exc:
+            return f"Error loading template: {exc}. Ensure templates/analyze_resume_bulk.html exists.", 500
 
     @app.post("/api/analyze-resume")
     def analyze_resume():
@@ -103,4 +119,65 @@ def analyze_resume_page(app, fetch_rows):
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
+    @app.post("/api/analyze-resume-bulk")
+    def analyze_resume_bulk():
+        """
+        Accepts a JSON array of resumes:
+        [
+          { "id": <int>, "request_id": <int>, "base64_file": "<base64 string>" },
+          ...
+        ]
+        
+        Returns a batch_id for tracking.
+        """
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+
+        resumes = request.get_json(silent=True)
+        if not isinstance(resumes, list):
+            return jsonify({"error": "Payload must be a JSON array of resume objects"}), 400
+
+        if not resumes:
+            return jsonify({"error": "Resume list is empty"}), 400
+
+        # Generate a unique batch ID
+        batch_id = str(uuid.uuid4())
+
+        try:
+            # Enqueue resumes for background processing
+            enqueue_resumes(batch_id, resumes)
+            
+            return jsonify({
+                "message": "Resumes enqueued for bulk processing",
+                "batch_id": batch_id,
+                "count": len(resumes)
+            }), 202
+        except Exception as exc:
+            return jsonify({"error": f"Failed to enqueue resumes: {exc}"}), 500
+
+    @app.get("/api/analyze-resume-batch/<batch_id>")
+    def analyze_resume_batch_status(batch_id):
+        """
+        Returns the current parsing status for the given batch_id.
+        """
+        from analyze_resume_bulk import get_batch_status
+        try:
+            status = get_batch_status(batch_id)
+            return jsonify(status), 200
+        except Exception as exc:
+            return jsonify({"error": f"Failed to get batch status: {exc}"}), 500
+
+    @app.get("/api/analyze-resume-batch/<batch_id>/results")
+    def analyze_resume_batch_results(batch_id):
+        """
+        Returns the actual parsed JSON results for the batch.
+        """
+        from analyze_resume_bulk import get_batch_results
+        try:
+            results = get_batch_results(batch_id)
+            return jsonify({"batch_id": batch_id, "data": results}), 200
+        except Exception as exc:
+            return jsonify({"error": f"Failed to get batch results: {exc}"}), 500
+
     return app
+
