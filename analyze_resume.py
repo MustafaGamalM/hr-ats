@@ -151,9 +151,19 @@ def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
         '{ "Years of Experience": 20, "Technical Skills": 30 }\n'
     )
 
+    # Build a strict JSON schema dynamically mapped directly to the active subcategories
+    response_schema = types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            sc_name: types.Schema(type=types.Type.NUMBER) for sc_name in subcats.keys()
+        },
+        required=list(subcats.keys())
+    )
+
     return {
         "system": system_prompt,
         "user": user_prompt,
+        "schema": response_schema,
         "rows": rows 
     }
 
@@ -304,7 +314,7 @@ def send_prompt_and_pdf_to_gemini(
     request_id: int,
     base64_file: str,
     fetch_rows,
-    model: str = "gemini-2.5-flash",
+    model: str = "gemini-3.1-flash-lite-preview",
     return_raw_response: bool = False,
     raise_on_error: bool = False
 ):
@@ -340,22 +350,28 @@ def send_prompt_and_pdf_to_gemini(
         if GEMINI_CLIENT == NULL:
             GEMINI_CLIENT = genai.Client(api_key=GEMINI_API_KEY)
 
-        # Build content parts
-        combined_text = prompts["system"].strip() + "\n\n" + prompts["user"].strip()
+        # Isolate system instruction from user payload
+        system_text = prompts["system"].strip()
+        user_text = prompts["user"].strip()
+        schema = prompts.get("schema")
 
         content_parts = [
-            genai.types.Part.from_text(text=combined_text),
+            genai.types.Part.from_text(text=user_text),
             genai.types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"),
         ]
 
-        # Send to Gemini
+        # Send to Gemini with strictly deterministic decoding strategies and JSON schema enforcement
         raw_response = GEMINI_CLIENT.models.generate_content(
             model=model,
             contents=content_parts,
             config=types.GenerateContentConfig(
-                temperature=0.0, 
+                temperature=0.0,
+                top_p=0.0,
+                top_k=1,
                 seed=42, 
-                response_mime_type="application/json" 
+                system_instruction=system_text,
+                response_mime_type="application/json",
+                response_schema=schema
             )
         )
 
