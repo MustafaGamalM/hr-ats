@@ -81,10 +81,15 @@ def enqueue_resumes(batch_id: str, resumes: List[Dict[str, Any]]):
 def get_batch_status(batch_id: str) -> Dict[str, Any]:
     """
     Queries the database to return the current status of all CVs in a batch.
+    FAILED items include a breakdown of whether they will be retried or have permanently failed.
     """
+    MAX_RETRIES = 5
+
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+
+        # Overall status counts
         cursor.execute("SELECT status, COUNT(*) as count FROM cv_jobs WHERE batch_id = ? GROUP BY status", (batch_id,))
         rows = cursor.fetchall()
         
@@ -93,14 +98,43 @@ def get_batch_status(batch_id: str) -> Dict[str, Any]:
         for row in rows:
             status_counts[row["status"]] = row["count"]
             total += row["count"]
-            
+
+        # Detailed breakdown for FAILED items
+        cursor.execute("""
+            SELECT id, retry_count, error_log 
+            FROM cv_jobs 
+            WHERE batch_id = ? AND status = 'FAILED'
+        """, (batch_id,))
+        failed_rows = cursor.fetchall()
+
+        will_retry = []
+        permanent_fail = []
+        for row in failed_rows:
+            entry = {
+                "id": row["id"],
+                "retry_count": row["retry_count"],
+                "retries_remaining": max(0, MAX_RETRIES - row["retry_count"]),
+                "last_error": row["error_log"]
+            }
+            if row["retry_count"] < MAX_RETRIES:
+                will_retry.append(entry)
+            else:
+                permanent_fail.append(entry)
+
         return {
             "batch_id": batch_id,
             "total": total,
-            "status_counts": status_counts
+            "status_counts": status_counts,
+            "failed_detail": {
+                "will_retry_count": len(will_retry),
+                "permanent_fail_count": len(permanent_fail),
+                "will_retry": will_retry,
+                "permanent_fail": permanent_fail
+            }
         }
     finally:
         conn.close()
+
 
 def get_batch_results(batch_id: str) -> List[Dict[str, Any]]:
     """

@@ -379,16 +379,17 @@ def send_prompt_and_pdf_to_gemini(
         parsed = _parse_gemini_response_for_json(raw_response)
 
         try:
-            percent = calculate_total_percent_from_rows(parsed, rows)
+            percent, total_score = calculate_total_percent_from_rows(parsed, rows)
         except Exception:
-            percent = 0
+            percent, total_score = 0, 0
 
         # Pass the database rows so the function knows what the dynamic categories are
         normalized = format_dynamic_subcategories(parsed, rows)
 
         out = {
             "result": normalized,
-            "percent": percent if isinstance(percent, int) else None
+            "percent": percent if isinstance(percent, int) else None,
+            "totalScore": total_score
         }
 
         if return_raw_response:
@@ -401,14 +402,15 @@ def send_prompt_and_pdf_to_gemini(
             raise
         return {"error": str(exc)}
 
-def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> int:
+def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> tuple:
     """
-    Calculate percent score from Gemini output using previously fetched DB rows.
+    Calculate percent score and total assigned score from Gemini output using previously fetched DB rows.
     No database queries are made here.
+    Returns (percent, sum_assigned)
     """
 
     if not isinstance(gemini_scores, dict) or not gemini_scores:
-        return 0
+        return 0, 0
 
     # Build: SubCategoryName -> max FullScore
     subcat_max = {}
@@ -422,7 +424,7 @@ def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> int:
             subcat_max[sc] = max(subcat_max.get(sc, 0), score)
 
     if not subcat_max:
-        return 0
+        return 0, 0
 
     # Compute totals
     sum_assigned = 0.0
@@ -441,8 +443,8 @@ def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> int:
         sum_max += subcat_max[sc_name]
 
     if sum_max <= 0:
-        return 0
+        return 0, int(sum_assigned)
 
     percent = round((sum_assigned / sum_max) * 100)
-    return max(0, min(100, percent))
+    return max(0, min(100, percent)), int(sum_assigned)
 
