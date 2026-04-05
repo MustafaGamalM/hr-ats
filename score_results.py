@@ -48,14 +48,14 @@ def score_results_page(app, fetch_rows):
         """
         query = """
             SELECT
-                score.subCategoryId AS SubCategoryId,
+                score.SubCat_ID AS SubCat_ID,
                 sc.En_Name AS SubCategoryName,
                 score.score AS Score
             FROM dbo.Core_CvScore AS score
             LEFT JOIN dbo.Core_CVPointsSubCategory AS sc
-                ON sc.ID = score.subCategoryId
+                ON sc.ID = score.SubCat_ID
             WHERE score.candidateRequestId = ?
-            ORDER BY sc.En_Name ASC, score.subCategoryId ASC;
+            ORDER BY sc.En_Name ASC, score.SubCat_ID ASC;
         """
         data, status = fetch_rows(query, (candidate_request_id,))
         return jsonify(data), status

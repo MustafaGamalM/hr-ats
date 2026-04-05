@@ -61,16 +61,16 @@ def get_categories():
             C.ID,
             C.En_Name,
             C.Ar_Name,
-            ISNULL(SUM(CJCP.FullScore), 0) AS Score
+            ISNULL(SUM(CJCP.Score), 0) AS Score
         FROM Core_CVPointsCategories AS C
         LEFT JOIN Core_CVPointsSubCategory AS SC
-            ON SC.CategoryId = C.ID
+            ON SC.CAT_ID = C.ID
             AND ISNULL(SC.Is_Delete, 0) = 0
         LEFT JOIN Core_CVPointsCriteria AS CR
-            ON CR.SubCategoryId = SC.ID
+            ON CR.SubCat_ID = SC.ID
             AND ISNULL(CR.Is_Delete, 0) = 0
         LEFT JOIN Core_JobTitle_CVPoints AS CJCP
-            ON CJCP.PointsCriteriaId = CR.ID
+            ON CJCP.Critiria_ID = CR.ID
             AND ISNULL(CJCP.Is_Delete, 0) = 0
         WHERE ISNULL(C.Is_Delete, 0) = 0
         GROUP BY C.ID, C.En_Name, C.Ar_Name
@@ -87,25 +87,25 @@ def get_subcategories():
             SC.ID,
             SC.En_Name,
             SC.Ar_Name,
-            SC.CategoryId,
-            ISNULL(SUM(CJCP.FullScore), 0) AS Score
+            SC.CAT_ID,
+            ISNULL(SUM(CJCP.Score), 0) AS Score
         FROM Core_CVPointsSubCategory AS SC
         LEFT JOIN Core_CVPointsCriteria AS CR
-            ON CR.SubCategoryId = SC.ID
+            ON CR.SubCat_ID = SC.ID
             AND ISNULL(CR.Is_Delete, 0) = 0
         LEFT JOIN Core_JobTitle_CVPoints AS CJCP
-            ON CJCP.PointsCriteriaId = CR.ID
+            ON CJCP.Critiria_ID = CR.ID
             AND ISNULL(CJCP.Is_Delete, 0) = 0
         WHERE ISNULL(SC.Is_Delete, 0) = 0
     """
     category_id = request.args.get("categoryId", type=int)
     params = []
     if category_id:
-        query += " AND SC.CategoryId = ?"
+        query += " AND SC.CAT_ID = ?"
         params.append(category_id)
 
     query += """
-        GROUP BY SC.ID, SC.En_Name, SC.Ar_Name, SC.CategoryId
+        GROUP BY SC.ID, SC.En_Name, SC.Ar_Name, SC.CAT_ID
         ORDER BY SC.En_Name
     """
     data, status = fetch_rows(query, params)
@@ -119,22 +119,22 @@ def get_criteria():
             CR.ID,
             CR.En_Name,
             CR.Ar_Name,
-            CR.SubCategoryId,
-            ISNULL(SUM(CJCP.FullScore), 0) AS Score
+            CR.SubCat_ID,
+            ISNULL(SUM(CJCP.Score), 0) AS Score
         FROM Core_CVPointsCriteria AS CR
         LEFT JOIN Core_JobTitle_CVPoints AS CJCP
-            ON CJCP.PointsCriteriaId = CR.ID
+            ON CJCP.Critiria_ID = CR.ID
             AND ISNULL(CJCP.Is_Delete, 0) = 0
         WHERE ISNULL(CR.Is_Delete, 0) = 0
     """
     subcategory_id = request.args.get("subcategoryId", type=int)
     params = []
     if subcategory_id:
-        query += " AND CR.SubCategoryId = ?"
+        query += " AND CR.SubCat_ID = ?"
         params.append(subcategory_id)
 
     query += """
-        GROUP BY CR.ID, CR.En_Name, CR.Ar_Name, CR.SubCategoryId
+        GROUP BY CR.ID, CR.En_Name, CR.Ar_Name, CR.SubCat_ID
         ORDER BY CR.En_Name
     """
     data, status = fetch_rows(query, params)
@@ -144,16 +144,16 @@ def get_criteria():
 @app.get("/api/job-titles")
 def get_job_titles():
     query = """
-        SELECT JT.ID, JT.En_Name, JT.Ar_Name, ISNULL(SUM(CJCP.FullScore), 0) AS Score
+        SELECT JT.ID, JT.En_Name, JT.Ar_Name, ISNULL(SUM(CJCP.Score), 0) AS Score
         FROM Core_Job_Title AS JT
         LEFT JOIN Core_JobTitle_CVPoints AS CJCP
-            ON CJCP.JobTitle_Id = JT.ID
+            ON CJCP.Job_Title_ID = JT.ID
             AND ISNULL(CJCP.Is_Delete, 0) = 0
     """
     criteria_id = request.args.get("criteriaId", type=int)
     params = []
     if criteria_id:
-        query += " AND CJCP.PointsCriteriaId = ?"
+        query += " AND CJCP.Critiria_ID = ?"
         params.append(criteria_id)
 
     query += """
@@ -182,9 +182,9 @@ def add_job_title_criteria():
             cursor.execute(
                 """
                 INSERT INTO Core_JobTitle_CVPoints (
-                    JobTitle_Id,
-                    PointsCriteriaId,
-                    FullScore,
+                    Job_Title_ID,
+                    Critiria_ID,
+                    Score,
                     Is_Delete,
                     Creat_User_ID,
                     Create_Date,
@@ -224,5 +224,3 @@ if __name__ == "__main__":
     
     port = int(os.getenv("PORT", "5000"))
     serve(app, host="0.0.0.0", port=port)
-
-

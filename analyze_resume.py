@@ -16,23 +16,23 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 QUERY = """
 SELECT 
-      jtp.JobTitle_Id,
-      jtp.PointsCriteriaId,
-      jtp.FullScore,
-      pcr.En_Name AS CriteriaName,
-      pcr.SubCategoryId,
-      psc.En_Name AS SubCategoryName,
-      psc.CategoryId,
-      pca.En_Name AS CategoryName
-FROM dbo.Core_JobTitle_CVPoints AS jtp
+      ats.Job_Title_ID,
+      ats.Critiria_ID,
+      ats.Score,
+      crit.En_Name AS CriteriaName,
+      crit.SubCat_ID,
+      subcat.En_Name AS SubCategoryName,
+      subcat.CAT_ID,
+      cat.En_Name AS CategoryName
+FROM dbo.I_Core_Job_Title_Rec_ATS_Critiria AS ats
 JOIN dbo.I_Core_Job_Title_Rec_Requests AS rec
-      ON jtp.JobTitle_Id = rec.Job_Title_ID
-JOIN dbo.Core_CVPointsCriteria AS pcr
-      ON jtp.PointsCriteriaId = pcr.ID
-JOIN dbo.Core_CVPointsSubCategory AS psc
-      ON pcr.SubCategoryId = psc.ID
-JOIN dbo.Core_CVPointsCategories AS pca
-      ON psc.CategoryId = pca.ID
+      ON ats.Job_Title_ID = rec.Job_Title_ID
+JOIN dbo.Rec_ATS_Critiria AS crit
+      ON ats.Critiria_ID = crit.ID
+JOIN dbo.Rec_ATS_Sub_Category AS subcat
+      ON crit.SubCat_ID = subcat.ID
+JOIN dbo.Rec_ATS_Category AS cat
+      ON subcat.CAT_ID = cat.ID
 WHERE rec.Request_ID = ?
 """
 
@@ -46,8 +46,9 @@ STATIC_SUBCATEGORIES = [
     "Certifications",
     "Technical Skills",
     "Soft Skills",
-    "Keywords Match"
+    "Keywords Match",
 ]
+
 
 def _safe_extract_json(text: str) -> Any:
     """
@@ -58,16 +59,21 @@ def _safe_extract_json(text: str) -> Any:
     - Raises ValueError with helpful info on failure.
     """
     if not isinstance(text, str):
-        raise ValueError("Expected a string from Gemini part.text, got: " + repr(type(text)))
+        raise ValueError(
+            "Expected a string from Gemini part.text, got: " + repr(type(text))
+        )
 
     # Remove common fenced-code markers (```json ... ``` or ``` ... ```)
-    cleaned = re.sub(r'```json\s*', '', text, flags=re.IGNORECASE).strip()
+    cleaned = re.sub(r"```json\s*", "", text, flags=re.IGNORECASE).strip()
     cleaned = cleaned.replace("```", "").strip()
 
     # Find first position of '{' or '['
     idx_candidates = [i for i in (cleaned.find("{"), cleaned.find("[")) if i != -1]
     if not idx_candidates:
-        raise ValueError("No JSON-like characters ('{' or '[') found in part text. Preview:\n" + cleaned[:1000])
+        raise ValueError(
+            "No JSON-like characters ('{' or '[') found in part text. Preview:\n"
+            + cleaned[:1000]
+        )
 
     decoder = json.JSONDecoder()
     # Try starting from each candidate index (sorted, earliest first)
@@ -92,24 +98,25 @@ def _safe_extract_json(text: str) -> Any:
     preview = cleaned[:1000] + ("..." if len(cleaned) > 1000 else "")
     raise ValueError("Failed to parse JSON from Gemini part text. Preview:\n" + preview)
 
+
 def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
     rows, status = fetch_rows(QUERY, (request_id,))
     if status != 200:
         # Return minimal structure even on error
         return {
             "system": "Error fetching criteria rows.",
-            "user": f"Database error: {rows.get('error', 'unknown')}"
+            "user": f"Database error: {rows.get('error', 'unknown')}",
         }
 
     subcats = {}
     for r in rows:
         sc_name = r["SubCategoryName"]
         crit = {
-            "PointsCriteriaId": r["PointsCriteriaId"],
+            "Critiria_ID": r["Critiria_ID"],
             "CriteriaName": r["CriteriaName"],
-            "FullScore": r["FullScore"],
-            "CategoryId": r["CategoryId"],
-            "CategoryName": r["CategoryName"]
+            "Score": r["Score"],
+            "CategoryId": r["CAT_ID"],
+            "CategoryName": r["CategoryName"],
         }
         subcats.setdefault(sc_name, []).append(crit)
 
@@ -118,7 +125,7 @@ def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
         criteria_listing_lines.append(f"SubCategory: {sc_name}")
         for c in crits:
             criteria_listing_lines.append(
-                f"  - CriteriaId: {c['PointsCriteriaId']}, Name: {c['CriteriaName']}, Score: {c['FullScore']}"
+                f"  - CriteriaId: {c['Critiria_ID']}, Name: {c['CriteriaName']}, Score: {c['Score']}"
             )
         criteria_listing_lines.append("")
 
@@ -130,7 +137,6 @@ def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
         "and for each SUBCATEGORY supplied in the 'user' message, select the single most appropriate "
         "CRITERIA from the list for that subcategory that best matches the resume. "
         "Then return a single JSON object that maps SubCategoryName -> NumericScore.\n\n"
-
         "RESPONSE RULES:\n"
         "1) Reply with a single JSON object only.\n"
         "2) Keys = exact SubCategory names.\n"
@@ -142,11 +148,9 @@ def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
     user_prompt = (
         "Use the resume to choose the best matching criteria for each SUBCATEGORY listed below.\n"
         "Return ONLY the JSON mapping SubCategoryName -> FullScore.\n\n"
-
         "--- SubCategories and their Criteria ---\n\n"
         f"{criteria_listing_text}\n"
         "--- end of list ---\n\n"
-
         "Example output:\n"
         '{ "Years of Experience": 20, "Technical Skills": 30 }\n'
     )
@@ -157,15 +161,16 @@ def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
         properties={
             sc_name: types.Schema(type=types.Type.NUMBER) for sc_name in subcats.keys()
         },
-        required=list(subcats.keys())
+        required=list(subcats.keys()),
     )
 
     return {
         "system": system_prompt,
         "user": user_prompt,
         "schema": response_schema,
-        "rows": rows 
+        "rows": rows,
     }
+
 
 def _parse_gemini_response_for_json(response):
     """
@@ -181,7 +186,9 @@ def _parse_gemini_response_for_json(response):
     elif isinstance(response, dict):
         candidates = response.get("candidates")
     else:
-        raise ValueError(f"Expected Gemini response with 'candidates'. Got: {type(response)}")
+        raise ValueError(
+            f"Expected Gemini response with 'candidates'. Got: {type(response)}"
+        )
 
     if not candidates:
         raise ValueError("Gemini response contains no 'candidates' or it's empty.")
@@ -234,10 +241,13 @@ def _parse_gemini_response_for_json(response):
                 last_errors.append(f"candidate[{ci}].part[{pi}]: {e}")
                 continue
 
-    error_msg = "Failed to extract JSON from Gemini response. Tried all candidates/parts."
+    error_msg = (
+        "Failed to extract JSON from Gemini response. Tried all candidates/parts."
+    )
     if last_errors:
         error_msg += "\nSample errors:\n" + "\n".join(last_errors[:8])
     raise ValueError(error_msg)
+
 
 def enforce_static_subcategories(parsed_result: dict) -> list:
     """
@@ -259,13 +269,16 @@ def enforce_static_subcategories(parsed_result: dict) -> list:
             except Exception:
                 out_score = None
 
-        result_array.append({
-            "subCategoryID": idx,
-            "subCategoryName": name,
-            "subCategoryScore": out_score
-        })
+        result_array.append(
+            {
+                "subCategoryID": idx,
+                "subCategoryName": name,
+                "subCategoryScore": out_score,
+            }
+        )
 
     return result_array
+
 
 def format_dynamic_subcategories(parsed_result: dict, rows: list) -> list:
     """
@@ -278,11 +291,11 @@ def format_dynamic_subcategories(parsed_result: dict, rows: list) -> list:
     # Extract unique subcategories and their actual database IDs
     seen_ids = set()
     dynamic_subcategories = []
-    
+
     for r in rows:
-        sc_id = r.get("SubCategoryId")
+        sc_id = r.get("SubCat_ID")
         sc_name = r.get("SubCategoryName")
-        
+
         # Ensure we only add each subcategory once
         if sc_id and sc_name and sc_id not in seen_ids:
             seen_ids.add(sc_id)
@@ -292,7 +305,7 @@ def format_dynamic_subcategories(parsed_result: dict, rows: list) -> list:
 
     for sc_id, name in dynamic_subcategories:
         raw_score = parsed_result.get(name)
-        
+
         if raw_score is None:
             out_score = None
         else:
@@ -302,13 +315,16 @@ def format_dynamic_subcategories(parsed_result: dict, rows: list) -> list:
             except Exception:
                 out_score = None
 
-        result_array.append({
-            "subCategoryID": sc_id,  # Uses the real DB ID now!
-            "subCategoryName": name,
-            "subCategoryScore": out_score
-        })
+        result_array.append(
+            {
+                "subCategoryID": sc_id,  # Uses the real DB ID now!
+                "subCategoryName": name,
+                "subCategoryScore": out_score,
+            }
+        )
 
     return result_array
+
 
 def send_prompt_and_pdf_to_gemini(
     request_id: int,
@@ -316,7 +332,7 @@ def send_prompt_and_pdf_to_gemini(
     fetch_rows,
     model: str = "gemini-3.1-flash-lite-preview",
     return_raw_response: bool = False,
-    raise_on_error: bool = False
+    raise_on_error: bool = False,
 ):
     """
     Build system+user prompts for the given request_id using build_gemini_prompt(),
@@ -332,11 +348,17 @@ def send_prompt_and_pdf_to_gemini(
             return {
                 "result": [],
                 "percent": 0,
-                "error": f"No criteria found in the database for request_id {request_id}. Skipping Gemini analysis."
+                "error": f"No criteria found in the database for request_id {request_id}. Skipping Gemini analysis.",
             }
 
-        if not isinstance(prompts, dict) or "system" not in prompts or "user" not in prompts:
-            raise ValueError("build_gemini_prompt did not return expected dict with 'system' and 'user' keys.")
+        if (
+            not isinstance(prompts, dict)
+            or "system" not in prompts
+            or "user" not in prompts
+        ):
+            raise ValueError(
+                "build_gemini_prompt did not return expected dict with 'system' and 'user' keys."
+            )
 
         # Normalize/strip data-uri header if present
         if isinstance(base64_file, str) and "base64," in base64_file:
@@ -368,11 +390,11 @@ def send_prompt_and_pdf_to_gemini(
                 temperature=0.0,
                 top_p=0.0,
                 top_k=1,
-                seed=42, 
+                seed=42,
                 system_instruction=system_text,
                 response_mime_type="application/json",
-                response_schema=schema
-            )
+                response_schema=schema,
+            ),
         )
 
         # Parse JSON using existing helper
@@ -389,7 +411,7 @@ def send_prompt_and_pdf_to_gemini(
         out = {
             "result": normalized,
             "percent": percent if isinstance(percent, int) else None,
-            "totalScore": total_score
+            "totalScore": total_score,
         }
 
         if return_raw_response:
@@ -401,6 +423,7 @@ def send_prompt_and_pdf_to_gemini(
         if raise_on_error:
             raise
         return {"error": str(exc)}
+
 
 def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> tuple:
     """
@@ -417,7 +440,7 @@ def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> tuple:
     for r in rows:
         sc = r.get("SubCategoryName")
         try:
-            score = float(r.get("FullScore") or 0)
+            score = float(r.get("Score") or 0)
         except:
             score = 0
         if sc:
@@ -447,4 +470,3 @@ def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> tuple:
 
     percent = round((sum_assigned / sum_max) * 100)
     return max(0, min(100, percent)), int(sum_assigned)
-
