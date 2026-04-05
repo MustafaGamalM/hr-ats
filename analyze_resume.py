@@ -25,7 +25,7 @@ SELECT
       subcat.CAT_ID,
       cat.En_Name AS CategoryName
 FROM dbo.I_Core_Job_Title_Rec_ATS_Critiria AS ats
-JOIN dbo.I_Core_Job_Title_Rec_Requests AS rec
+JOIN dbo.I_Core_Job_Title_Org_Gender_Rec_Request AS rec
       ON ats.Job_Title_ID = rec.Job_Title_ID
 JOIN dbo.Rec_ATS_Critiria AS crit
       ON ats.Critiria_ID = crit.ID
