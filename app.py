@@ -12,8 +12,12 @@ from page_view import CVScreen
 from score_results import score_results_page
 
 from analyze_resume_api import analyze_resume_page
+from scrap_api import register_scrap_api
 
-load_dotenv()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(BASE_DIR, ".env")
+
+load_dotenv(dotenv_path=ENV_PATH)
 
 app = Flask(__name__)
 
@@ -212,6 +216,7 @@ request_create_page(app, fetch_rows, get_connection)
 analyze_resume_page(app, fetch_rows)
 candidate_request_page(app, fetch_rows)
 score_results_page(app, fetch_rows)
+register_scrap_api(app)
 
 if __name__ == "__main__":
     import threading

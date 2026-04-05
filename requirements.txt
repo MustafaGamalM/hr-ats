@@ -2,5 +2,9 @@ Flask>=3.0.0
 python-dotenv>=1.0.0
 pyodbc>=5.0.0
 google-genai>=1.0.0
+requests
+yt-dlp
+curl-cffi>=0.14.0
+google-genai>=1.0.0
 waitress>=3.0.0
 tenacity>=8.0.0
