@@ -14,6 +14,11 @@ from asyncio.windows_events import NULL
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+import datetime
+
+_MODEL_VERIFIED = False
+_LAST_CHECK_DATE = None
+
 QUERY = """
 SELECT 
       ats.Job_Title_ID,
@@ -330,7 +335,7 @@ def send_prompt_and_pdf_to_gemini(
     request_id: int,
     base64_file: str,
     fetch_rows,
-    model: str = "gemini-3.1-flash-lite-preview",
+    model: str = "gemini-3.1-flash-lite",
     return_raw_response: bool = False,
     raise_on_error: bool = False,
 ):
@@ -338,6 +343,7 @@ def send_prompt_and_pdf_to_gemini(
     Build system+user prompts for the given request_id using build_gemini_prompt(),
     send those prompts plus the provided PDF (base64) to Gemini, and return the parsed JSON.
     """
+    global _MODEL_VERIFIED, _LAST_CHECK_DATE
     GEMINI_CLIENT = NULL
 
     try:
@@ -371,6 +377,25 @@ def send_prompt_and_pdf_to_gemini(
         # Initialize Gemini client if needed
         if GEMINI_CLIENT == NULL:
             GEMINI_CLIENT = genai.Client(api_key=GEMINI_API_KEY)
+
+        # Model Check Logic
+        if not _MODEL_VERIFIED:
+            today = datetime.date.today()
+            if _LAST_CHECK_DATE != today:
+                if check_model_exists(GEMINI_CLIENT, "gemini-3.1-flash-lite"):
+                    _MODEL_VERIFIED = True
+                    _LAST_CHECK_DATE = today
+                    model = "gemini-3.1-flash-lite"
+                else:
+                    _LAST_CHECK_DATE = today
+                    print(f"[{today}] Model 'gemini-3.1-flash-lite' is NOT available. Falling back to 'gemini-3.1-flash-lite-preview'.")
+                    model = "gemini-3.1-flash-lite-preview"
+            else:
+                # We already checked today and it failed
+                model = "gemini-3.1-flash-lite-preview"
+        else:
+            # Already verified
+            model = "gemini-3.1-flash-lite"
 
         # Isolate system instruction from user payload
         system_text = prompts["system"].strip()
@@ -470,3 +495,20 @@ def calculate_total_percent_from_rows(gemini_scores: dict, rows: list) -> tuple:
 
     percent = round((sum_assigned / sum_max) * 100)
     return max(0, min(100, percent)), int(sum_assigned)
+
+
+def check_model_exists(client: genai.Client, target_model: str) -> bool:
+    """
+    Checks if a specific model exists in the available Gemini models.
+    """
+    # Ensure the target string matches the API's format (e.g., 'models/gemini-...')
+    full_target = (
+        target_model if target_model.startswith("models/") else f"models/{target_model}"
+    )
+
+    # Iterate through available models
+    for model_info in client.models.list():
+        if model_info.name == full_target:
+            return True
+
+    return False

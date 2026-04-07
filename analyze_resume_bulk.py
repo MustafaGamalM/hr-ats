@@ -256,42 +256,62 @@ def background_worker():
                 conn.commit()
                 last_cleanup = now
             
-            # Find one pending job OR a FAILED job that has not exhausted its retries
+            # Find up to 3 pending jobs OR FAILED jobs that have not exhausted their retries
             cursor.execute("""
                 SELECT * FROM cv_jobs 
                 WHERE status = 'PENDING' OR (status = 'FAILED' AND retry_count < 5)
                 ORDER BY last_updated ASC
-                LIMIT 1
+                LIMIT 3
             """)
-            job = cursor.fetchone()
+            jobs = cursor.fetchall()
             
-            if not job:
+            if not jobs:
                 # No jobs, sleep and poll again
                 conn.close()
                 consecutive_fails = 0 # Safety reset if queue is entirely empty
                 time.sleep(POLL_INTERVAL)
                 continue
                 
-            job_id = job["id"]
+            job_ids = [job["id"] for job in jobs]
             
-            # Claim the job
-            cursor.execute("UPDATE cv_jobs SET status = 'PROCESSING', last_updated = CURRENT_TIMESTAMP WHERE id = ?", (job_id,))
+            # Claim the jobs
+            placeholders = ','.join('?' * len(job_ids))
+            cursor.execute(f"UPDATE cv_jobs SET status = 'PROCESSING', last_updated = CURRENT_TIMESTAMP WHERE id IN ({placeholders})", job_ids)
             conn.commit()
             conn.close()
             
-            # Process the claimed job
-            success = process_single_cv(job)
+            # Process the claimed jobs concurrently
+            import concurrent.futures
+            
+            successes = 0
+            failures = 0
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                # We map the process_single_cv function over the list of jobs
+                future_to_job = {executor.submit(process_single_cv, job): job for job in jobs}
+                for future in concurrent.futures.as_completed(future_to_job):
+                    job = future_to_job[future]
+                    try:
+                        success = future.result()
+                        if success:
+                            successes += 1
+                        else:
+                            failures += 1
+                    except Exception as exc:
+                        failures += 1
+                        print(f"Job {job['id']} generated an exception: {exc}")
             
             # Rate limit backoff logic
-            if success:
-                consecutive_fails = 0
-            else:
+            if failures > 0 and successes == 0:
+                # If all jobs in this batch failed, treat as consecutive failure
                 consecutive_fails += 1
                 if consecutive_fails >= 3:
                     print("\n*** RATE LIMIT SAFEGUARD TRIGGERED ***")
-                    print(f"Detected {consecutive_fails} consecutive CV failures. Sleeping for 60 seconds to let Gemini API rate limit refresh...\n")
+                    print(f"Detected {consecutive_fails} consecutive CV failure batches. Sleeping for 60 seconds to let Gemini API rate limit refresh...\n")
                     time.sleep(60)
                     consecutive_fails = 0 # Reset after paying the sleep penalty
+            else:
+                consecutive_fails = 0
             
         except Exception as exc:
             time.sleep(POLL_INTERVAL)
