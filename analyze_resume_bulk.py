@@ -10,8 +10,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from analyze_resume import send_prompt_and_pdf_to_gemini
 # We'll import fetch_rows when needed to avoid circular dependencies
 
+import tempfile
+
 # --- Configuration ---
-DB_PATH = "resumes_bulk.db"
+# Use OS temp directory to avoid 'readonly database' permission errors on servers
+DB_PATH = os.path.join(tempfile.gettempdir(), "resumes_bulk.db")
 POLL_INTERVAL = 3  # seconds
 
 def get_db_connection():
