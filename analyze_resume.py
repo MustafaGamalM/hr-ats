@@ -107,10 +107,9 @@ def _safe_extract_json(text: str) -> Any:
 def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
     rows, status = fetch_rows(QUERY, (request_id,))
     if status != 200:
-        # Return minimal structure even on error
+        # Return the error explicitly so we can surface it
         return {
-            "system": "Error fetching criteria rows.",
-            "user": f"Database error: {rows.get('error', 'unknown')}",
+            "error_msg": f"Database connection/query error: {rows.get('error', 'unknown')}"
         }
 
     subcats = {}
@@ -348,6 +347,15 @@ def send_prompt_and_pdf_to_gemini(
 
     try:
         prompts = build_gemini_prompt(request_id, fetch_rows)
+        
+        # Check if the prompt generation failed due to a database exception
+        if "error_msg" in prompts:
+            return {
+                "result": [],
+                "percent": 0,
+                "error": prompts["error_msg"]
+            }
+
         rows = prompts.get("rows", [])
 
         if not rows:
