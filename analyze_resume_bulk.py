@@ -54,6 +54,7 @@ def enqueue_resumes(batch_id: str, resumes: List[Dict[str, Any]]):
     If 'id' already exists, it links it to the current batch. If the target request_id 
     has changed, it resets it to PENDING to be re-processed; otherwise it keeps the old result.
     """
+    setup_sqlite_db()
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -88,6 +89,7 @@ def get_batch_status(batch_id: str) -> Dict[str, Any]:
     """
     MAX_RETRIES = 5
 
+    setup_sqlite_db()
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
@@ -143,6 +145,7 @@ def get_batch_results(batch_id: str) -> List[Dict[str, Any]]:
     """
     Retrieves all COMPLETED or FAILED resume profiles for a given batch.
     """
+    setup_sqlite_db()
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
