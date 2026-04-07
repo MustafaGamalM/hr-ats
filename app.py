@@ -17,7 +17,8 @@ from scrap_api import register_scrap_api
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, ".env")
 
-load_dotenv(dotenv_path=ENV_PATH)
+# override=True forces the app to prioritize the .env file over the global IIS environment variables
+load_dotenv(dotenv_path=ENV_PATH, override=True)
 
 app = Flask(__name__)
 
@@ -47,15 +48,25 @@ def get_connection() -> pyodbc.Connection:
 
 def fetch_rows(query: str, params: Iterable = ()) -> Tuple[list, int]:
     """Execute a query and return rows as dicts plus a status code."""
+    conn = None
     try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        if cursor.description:
             columns = [col[0] for col in cursor.description]
             rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            return rows, 200
+        else:
+            rows = []
+        return rows, 200
     except Exception as exc:  # pragma: no cover - surfaced in response
         return {"error": str(exc)}, 500
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 @app.get("/api/categories")
@@ -180,31 +191,38 @@ def add_job_title_criteria():
     if job_title_id is None or criteria_id is None or full_score is None:
         return jsonify({"error": "jobTitleId, criteriaId and fullScore are required"}), 400
 
+    conn = None
     try:
-        with get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO Core_JobTitle_CVPoints (
-                    Job_Title_ID,
-                    Critiria_ID,
-                    Score,
-                    Is_Delete,
-                    Creat_User_ID,
-                    Create_Date,
-                    Last_Update_User_ID,
-                    Last_Update_Date
-                )
-                VALUES (?, ?, ?, 0, ?, GETDATE(), ?, GETDATE());
-                """,
-                (job_title_id, criteria_id, full_score, user_id, user_id),
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO Core_JobTitle_CVPoints (
+                Job_Title_ID,
+                Critiria_ID,
+                Score,
+                Is_Delete,
+                Creat_User_ID,
+                Create_Date,
+                Last_Update_User_ID,
+                Last_Update_Date
             )
-            cursor.execute("SELECT SCOPE_IDENTITY() AS InsertedId;")
-            new_id = cursor.fetchone()[0]
-            conn.commit()
+            VALUES (?, ?, ?, 0, ?, GETDATE(), ?, GETDATE());
+            """,
+            (job_title_id, criteria_id, full_score, user_id, user_id),
+        )
+        cursor.execute("SELECT SCOPE_IDENTITY() AS InsertedId;")
+        new_id = cursor.fetchone()[0]
+        conn.commit()
         return jsonify({"id": int(new_id) if new_id is not None else None}), 201
     except Exception as exc:  # pragma: no cover - bubbled to API
         return jsonify({"error": str(exc)}), 500
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 @app.get("/")
