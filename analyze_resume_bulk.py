@@ -208,10 +208,10 @@ def process_single_cv(cv_row: sqlite3.Row) -> bool:
     try:
         ai_response = call_gemini_with_retry(request_id, cv_payload, fetch_rows)
         
-        # Success
+        # Success - Clear the base64 payload to save space
         cursor.execute("""
             UPDATE cv_jobs 
-            SET status = 'COMPLETED', ai_response = ?, last_updated = CURRENT_TIMESTAMP
+            SET status = 'COMPLETED', ai_response = ?, cv_payload = NULL, last_updated = CURRENT_TIMESTAMP
             WHERE id = ?
         """, (json.dumps(ai_response), row_id))
         return True
@@ -254,6 +254,8 @@ def background_worker():
             if now - last_cleanup > 3600:
                 cursor.execute("DELETE FROM cv_jobs WHERE last_updated <= datetime('now', '-7 days')")
                 conn.commit()
+                # Physically shrink the database file to reclaim space from deleted/cleared rows
+                cursor.execute("VACUUM")
                 last_cleanup = now
             
             # Find up to 3 pending jobs OR FAILED jobs that have not exhausted their retries
