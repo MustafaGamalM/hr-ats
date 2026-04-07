@@ -218,14 +218,15 @@ candidate_request_page(app, fetch_rows)
 score_results_page(app, fetch_rows)
 register_scrap_api(app)
 
+import threading
+from analyze_resume_bulk import background_worker
+
+# Start the background worker in a daemon thread so it runs alongside your API.
+# Placing this OUTSIDE the __main__ block ensures it starts even when deployed
+# via a WSGI server like Waitress-serve, Gunicorn, or IIS wfastcgi.
+worker_thread = threading.Thread(target=background_worker, daemon=True)
+worker_thread.start()
+
 if __name__ == "__main__":
-    import threading
-    from analyze_resume_bulk import background_worker
-    
-    # Start the background worker in a daemon thread so it runs alongside your API
-    # Daemon threads automatically shut down when the main process (Waitress/Flask) stops.
-    worker_thread = threading.Thread(target=background_worker, daemon=True)
-    worker_thread.start()
-    
     port = int(os.getenv("PORT", "5000"))
     serve(app, host="0.0.0.0", port=port)
