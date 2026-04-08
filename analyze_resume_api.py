@@ -155,6 +155,64 @@ def analyze_resume_page(app, fetch_rows):
         except Exception as exc:
             return jsonify({"error": f"Failed to enqueue resumes: {exc}"}), 500
 
+    @app.post("/api/analyze-resume-bulk-urls")
+    def analyze_resume_bulk_urls():
+        """
+        Accepts a JSON array of resumes with URLs instead of Base64:
+        [
+          { "id": <int/str>, "request_id": <int>, "url": "<url to pdf>" },
+          ...
+        ]
+        """
+        import requests
+        import base64
+        
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, list):
+            return jsonify({"error": "Payload must be a JSON array of resume objects"}), 400
+
+        if not payload:
+            return jsonify({"error": "Resume list is empty"}), 400
+
+        resumes = []
+        for item in payload:
+            url = item.get("url")
+            req_id = item.get("request_id")
+            item_id = item.get("id")
+            
+            if not url or not req_id or item_id is None:
+                return jsonify({"error": "Each object must contain 'id', 'request_id', and 'url'"}), 400
+                
+            try:
+                # Fetch PDF from URL
+                resp = requests.get(url, timeout=15)
+                resp.raise_for_status()
+                
+                pdf_bytes = resp.content
+                base64_file = base64.b64encode(pdf_bytes).decode("utf-8")
+                
+                resumes.append({
+                    "id": item_id,
+                    "request_id": req_id,
+                    "base64_file": base64_file
+                })
+            except Exception as exc:
+                return jsonify({"error": f"Failed to download or encode file from {url}: {exc}"}), 400
+
+        batch_id = str(uuid.uuid4())
+        try:
+            enqueue_resumes(batch_id, resumes)
+            return jsonify({
+                "message": "Resumes enqueued for bulk processing via URLs",
+                "batch_id": batch_id,
+                "count": len(resumes)
+            }), 202
+        except Exception as exc:
+            return jsonify({"error": f"Failed to enqueue resumes: {exc}"}), 500
+            
     @app.get("/api/analyze-resume-batch/<batch_id>")
     def analyze_resume_batch_status(batch_id):
         """
