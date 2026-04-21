@@ -157,4 +157,6 @@ cython_debug/
 # Project Specific
 resumes_bulk.db
 resumes_bulk.db-journal
+resumes_store.db
+resumes_store.db-journal
 .env
