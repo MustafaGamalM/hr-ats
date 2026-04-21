@@ -302,7 +302,7 @@ def analyze_resume_page(app, fetch_rows):
     @app.get("/api/analyze-resume-batch/<batch_id>")
     def analyze_resume_batch_status(batch_id):
         """
-        Returns the current parsing status for the given batch_id.
+        Returns the current parsing status and progress for the given batch_id.
         """
         from analyze_resume_bulk import get_batch_status
 

@@ -33,7 +33,7 @@ def get_db_connection():
 
 def setup_sqlite_db():
     """
-    Initializes the local SQLite database and table if it doesn't exist.
+    Initializes the local SQLite database and table if it doesn't exist (in the project directory).
     """
     # SQLite creates the file automatically if it doesn't exist when we connect.
     conn = get_db_connection()
@@ -277,20 +277,22 @@ def process_single_cv(cv_row: sqlite3.Row) -> bool:
 
     try:
         if not all([attachment_id, auth_token, company_id, business_entity_id]):
-            raise ValueError(f"Missing required metadata for attachment download: {dict(cv_row)}")
+            raise ValueError(
+                f"Missing required metadata for attachment download: {dict(cv_row)}"
+            )
 
         download_url = f"https://hratsback.cloudiax.com/api/Common/DownloadFile?CompanyID={company_id}&BusinessEntityID={business_entity_id}&AttachmentID={attachment_id}"
-        
-        headers = {
-            "Authorization": f"Bearer {auth_token}"
-        }
+
+        headers = {"Authorization": f"Bearer {auth_token}"}
 
         # Attempt to retrieve file
         resp = requests.get(download_url, headers=headers, timeout=20)
-        
+
         if resp.status_code in [401, 403]:
-            raise Exception("Failed to download document: Token may be expired or invalid (HTTP 401)")
-            
+            raise Exception(
+                "Failed to download document: Token may be expired or invalid (HTTP 401)"
+            )
+
         resp.raise_for_status()
 
         # Convert downloaded content to base64
