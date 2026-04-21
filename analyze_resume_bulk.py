@@ -19,8 +19,9 @@ from analyze_resume import send_prompt_and_pdf_to_gemini
 import tempfile
 
 # --- Configuration ---
-# Use OS temp directory to avoid 'readonly database' permission errors on servers
-DB_PATH = os.path.join(tempfile.gettempdir(), "resumes_bulk.db")
+# Use project directory to store local database
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "resumes_store.db")
 POLL_INTERVAL = 3  # seconds
 
 
@@ -44,8 +45,11 @@ def setup_sqlite_db():
                 id TEXT PRIMARY KEY,
                 batch_id TEXT,
                 request_id INTEGER,
+                attachment_id INTEGER,
+                auth_token TEXT,
+                company_id INTEGER,
+                business_entity_id INTEGER,
                 status TEXT DEFAULT 'PENDING',
-                cv_payload TEXT,
                 ai_response TEXT,
                 error_log TEXT,
                 last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -58,10 +62,17 @@ def setup_sqlite_db():
         conn.close()
 
 
-def enqueue_resumes(batch_id: str, resumes: List[Dict[str, Any]]):
+def enqueue_resumes(
+    batch_id: str,
+    request_id: int,
+    auth_token: str,
+    company_id: int,
+    business_entity_id: int,
+    resumes: List[Dict[str, Any]],
+):
     """
     Inserts a list of resumes into the cv_jobs table for background processing.
-    Each resume in the list should have 'id', 'request_id', and 'base64_file'.
+    Each resume in the list should have 'id' and 'attachment_id'.
     If 'id' already exists, it links it to the current batch. If the target request_id
     has changed, it resets it to PENDING to be re-processed; otherwise it keeps the old result.
     """
@@ -72,11 +83,14 @@ def enqueue_resumes(batch_id: str, resumes: List[Dict[str, Any]]):
         for r in resumes:
             cursor.execute(
                 """
-                INSERT INTO cv_jobs (id, batch_id, request_id, status, cv_payload)
-                VALUES (?, ?, ?, 'PENDING', ?)
+                INSERT INTO cv_jobs (id, batch_id, request_id, attachment_id, auth_token, company_id, business_entity_id, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
                 ON CONFLICT(id) DO UPDATE SET 
                     batch_id = excluded.batch_id,
-                    cv_payload = excluded.cv_payload,
+                    attachment_id = excluded.attachment_id,
+                    auth_token = excluded.auth_token,
+                    company_id = excluded.company_id,
+                    business_entity_id = excluded.business_entity_id,
                     status = CASE 
                         WHEN cv_jobs.request_id != excluded.request_id THEN 'PENDING' 
                         WHEN cv_jobs.status = 'FAILED' THEN 'PENDING'
@@ -87,10 +101,27 @@ def enqueue_resumes(batch_id: str, resumes: List[Dict[str, Any]]):
                         WHEN cv_jobs.status = 'FAILED' THEN 0 
                         ELSE cv_jobs.retry_count 
                     END,
+                    ai_response = CASE
+                        WHEN cv_jobs.request_id != excluded.request_id THEN NULL
+                        ELSE cv_jobs.ai_response
+                    END,
+                    error_log = CASE
+                        WHEN cv_jobs.request_id != excluded.request_id THEN NULL
+                        WHEN cv_jobs.status = 'FAILED' THEN NULL
+                        ELSE cv_jobs.error_log
+                    END,
                     request_id = excluded.request_id,
                     last_updated = CURRENT_TIMESTAMP
             """,
-                (str(r.get("id")), batch_id, r.get("request_id"), r.get("base64_file")),
+                (
+                    str(r.get("id")),
+                    batch_id,
+                    request_id,
+                    r.get("attachment_id"),
+                    auth_token,
+                    company_id,
+                    business_entity_id,
+                ),
             )
         conn.commit()
     finally:
@@ -231,22 +262,48 @@ def process_single_cv(cv_row: sqlite3.Row) -> bool:
     """
     # Import inside to prevent circular dependency
     from app import fetch_rows
+    import requests
+    import base64
 
     row_id = cv_row["id"]
     request_id = cv_row["request_id"]
-    cv_payload = cv_row["cv_payload"]
+    attachment_id = cv_row["attachment_id"]
+    auth_token = cv_row["auth_token"]
+    company_id = cv_row["company_id"]
+    business_entity_id = cv_row["business_entity_id"]
 
     conn = get_db_connection()
     cursor = conn.cursor()
 
     try:
-        ai_response = call_gemini_with_retry(request_id, cv_payload, fetch_rows)
+        if not all([attachment_id, auth_token, company_id, business_entity_id]):
+            raise ValueError(f"Missing required metadata for attachment download: {dict(cv_row)}")
 
-        # Success - Clear the base64 payload to save space
+        download_url = f"https://hratsback.cloudiax.com/api/Common/DownloadFile?CompanyID={company_id}&BusinessEntityID={business_entity_id}&AttachmentID={attachment_id}"
+        
+        headers = {
+            "Authorization": f"Bearer {auth_token}"
+        }
+
+        # Attempt to retrieve file
+        resp = requests.get(download_url, headers=headers, timeout=20)
+        
+        if resp.status_code in [401, 403]:
+            raise Exception("Failed to download document: Token may be expired or invalid (HTTP 401)")
+            
+        resp.raise_for_status()
+
+        # Convert downloaded content to base64
+        pdf_bytes = resp.content
+        base64_file = base64.b64encode(pdf_bytes).decode("utf-8")
+
+        ai_response = call_gemini_with_retry(request_id, base64_file, fetch_rows)
+
+        # Success - Update status
         cursor.execute(
             """
             UPDATE cv_jobs 
-            SET status = 'COMPLETED', ai_response = ?, cv_payload = NULL, last_updated = CURRENT_TIMESTAMP
+            SET status = 'COMPLETED', ai_response = ?, error_log = NULL, last_updated = CURRENT_TIMESTAMP
             WHERE id = ?
         """,
             (json.dumps(ai_response), row_id),
