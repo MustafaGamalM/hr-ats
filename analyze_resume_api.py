@@ -156,9 +156,8 @@ def analyze_resume_page(app, fetch_rows):
           "auth_token": "...",
           "company_id": 1,
           "business_entity_id": 1,
-          "request_id": 10,
           "resumes": [
-            { "id": "uuid-1", "attachment_id": 801 },
+            { "id": "uuid-1", "request_id": 10, "attachment_id": 801 },
             ...
           ]
         }
@@ -175,14 +174,13 @@ def analyze_resume_page(app, fetch_rows):
         auth_token = payload.get("auth_token")
         company_id = payload.get("company_id")
         business_entity_id = payload.get("business_entity_id")
-        request_id = payload.get("request_id")
         resumes = payload.get("resumes")
 
-        if not all([auth_token, company_id, business_entity_id, request_id]):
+        if not all([auth_token, company_id, business_entity_id]):
             return (
                 jsonify(
                     {
-                        "error": "Missing required top-level fields (auth_token, company_id, business_entity_id, request_id)"
+                        "error": "Missing required top-level fields (auth_token, company_id, business_entity_id)"
                     }
                 ),
                 400,
@@ -201,7 +199,6 @@ def analyze_resume_page(app, fetch_rows):
             # Enqueue resumes for background processing
             enqueue_resumes(
                 batch_id=batch_id,
-                request_id=request_id,
                 auth_token=auth_token,
                 company_id=company_id,
                 business_entity_id=business_entity_id,

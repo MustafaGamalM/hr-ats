@@ -64,7 +64,6 @@ def setup_sqlite_db():
 
 def enqueue_resumes(
     batch_id: str,
-    request_id: int,
     auth_token: str,
     company_id: int,
     business_entity_id: int,
@@ -72,7 +71,7 @@ def enqueue_resumes(
 ):
     """
     Inserts a list of resumes into the cv_jobs table for background processing.
-    Each resume in the list should have 'id' and 'attachment_id'.
+    Each resume in the list should have 'id', 'request_id', and 'attachment_id'.
     If 'id' already exists, it links it to the current batch. If the target request_id
     has changed, it resets it to PENDING to be re-processed; otherwise it keeps the old result.
     """
@@ -116,7 +115,7 @@ def enqueue_resumes(
                 (
                     str(r.get("id")),
                     batch_id,
-                    request_id,
+                    r.get("request_id"),
                     r.get("attachment_id"),
                     auth_token,
                     company_id,
