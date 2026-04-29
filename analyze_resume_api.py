@@ -6,6 +6,7 @@ import pyodbc
 import uuid
 from analyze_resume import send_prompt_and_pdf_to_gemini
 from analyze_resume_bulk import enqueue_resumes
+from analyze_resume import build_gemini_prompt, compute_criteria_hash
 
 
 def analyze_resume_page(app, fetch_rows):
@@ -197,6 +198,23 @@ def analyze_resume_page(app, fetch_rows):
         # Generate a unique batch ID
         batch_id = str(uuid.uuid4())
 
+        # --- Compute criteria hash BEFORE enqueueing ---
+        # This detects if criteria for this request_id have changed since the
+        # last analysis, even when the request_id itself hasn't changed.
+        # build_gemini_prompt fetches criteria rows from the DB and returns their hash.
+        try:
+            prompt_data = build_gemini_prompt(request_id, fetch_rows)
+            if "error_msg" in prompt_data:
+                return (
+                    jsonify({"error": f"Could not fetch criteria: {prompt_data['error_msg']}"}),
+                    400,
+                )
+            criteria_hash = prompt_data.get("criteria_hash")
+        except Exception as exc:
+            # Non-fatal: proceed without hash; enqueue_resumes treats None as "no hash available"
+            criteria_hash = None
+            print(f"[WARN] Could not compute criteria hash for request_id {request_id}: {exc}")
+
         try:
             # Enqueue resumes for background processing
             enqueue_resumes(
@@ -206,6 +224,7 @@ def analyze_resume_page(app, fetch_rows):
                 company_id=company_id,
                 business_entity_id=business_entity_id,
                 resumes=resumes,
+                criteria_hash=criteria_hash,
             )
 
             return (
@@ -214,6 +233,7 @@ def analyze_resume_page(app, fetch_rows):
                         "message": "Resumes enqueued for bulk processing",
                         "batch_id": batch_id,
                         "count": len(resumes),
+                        "criteria_hash": criteria_hash,
                     }
                 ),
                 202,

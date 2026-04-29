@@ -2,7 +2,8 @@ import json
 import re
 import base64
 import os
-from typing import Dict, Any
+import hashlib
+from typing import Dict, Any, List
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -53,6 +54,38 @@ STATIC_SUBCATEGORIES = [
     "Soft Skills",
     "Keywords Match",
 ]
+
+
+def compute_criteria_hash(rows: List[dict]) -> str:
+    """
+    Compute a deterministic SHA-256 fingerprint of the criteria rows returned
+    by the database for a given request_id.
+
+    Only the fields that influence the Gemini analysis are included:
+        Critiria_ID, Score, SubCat_ID, SubCategoryName, CriteriaName
+
+    Rows are sorted by Critiria_ID before hashing so that insertion order in
+    the DB does not affect the result.  The returned hex digest is 64 characters
+    long — negligible storage cost compared to caching the raw criteria.
+    """
+    # Extract only the fields that affect the analysis output
+    fingerprint_rows = [
+        {
+            "Critiria_ID": r.get("Critiria_ID"),
+            "Score": r.get("Score"),
+            "SubCat_ID": r.get("SubCat_ID"),
+            "SubCategoryName": r.get("SubCategoryName"),
+            "CriteriaName": r.get("CriteriaName"),
+        }
+        for r in rows
+    ]
+
+    # Sort by Critiria_ID so order is always deterministic regardless of query order
+    fingerprint_rows.sort(key=lambda x: (x["Critiria_ID"] or 0))
+
+    # Serialize to a compact, stable JSON string and hash it
+    serialized = json.dumps(fingerprint_rows, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _safe_extract_json(text: str) -> Any:
@@ -173,6 +206,7 @@ def build_gemini_prompt(request_id: int, fetch_rows) -> Dict[str, Any]:
         "user": user_prompt,
         "schema": response_schema,
         "rows": rows,
+        "criteria_hash": compute_criteria_hash(rows),
     }
 
 

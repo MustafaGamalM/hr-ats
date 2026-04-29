@@ -53,10 +53,16 @@ def setup_sqlite_db():
                 ai_response TEXT,
                 error_log TEXT,
                 last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
-                retry_count INTEGER DEFAULT 0
+                retry_count INTEGER DEFAULT 0,
+                criteria_hash TEXT
             )
         """
         )
+        # Add criteria_hash column to existing databases that were created before this column existed
+        try:
+            cursor.execute("ALTER TABLE cv_jobs ADD COLUMN criteria_hash TEXT")
+        except Exception:
+            pass  # Column already exists
         conn.commit()
     finally:
         conn.close()
@@ -69,12 +75,19 @@ def enqueue_resumes(
     company_id: int,
     business_entity_id: int,
     resumes: List[Dict[str, Any]],
+    criteria_hash: str = None,
 ):
     """
     Inserts a list of resumes into the cv_jobs table for background processing.
     Each resume in the list should have 'id' and 'attachment_id'.
-    If 'id' already exists, it links it to the current batch. If the target request_id
-    has changed, it resets it to PENDING to be re-processed; otherwise it keeps the old result.
+
+    Re-analysis is triggered (status reset to PENDING) if ANY of the following changed:
+      - request_id         : the job post / evaluation context
+      - criteria_hash      : the SHA-256 fingerprint of the criteria rows for this request_id;
+                             detects edits to scores, names, or the criteria set itself
+      - previous status was FAILED (always retried)
+
+    If none of the above changed and status is COMPLETED, the stored ai_response is kept.
     """
     setup_sqlite_db()
     conn = get_db_connection()
@@ -83,30 +96,39 @@ def enqueue_resumes(
         for r in resumes:
             cursor.execute(
                 """
-                INSERT INTO cv_jobs (id, batch_id, request_id, attachment_id, auth_token, company_id, business_entity_id, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING')
+                INSERT INTO cv_jobs (id, batch_id, request_id, attachment_id, auth_token, company_id, business_entity_id, status, criteria_hash)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
                 ON CONFLICT(id) DO UPDATE SET 
                     batch_id = excluded.batch_id,
                     attachment_id = excluded.attachment_id,
                     auth_token = excluded.auth_token,
                     company_id = excluded.company_id,
                     business_entity_id = excluded.business_entity_id,
+                    criteria_hash = excluded.criteria_hash,
                     status = CASE 
-                        WHEN cv_jobs.request_id != excluded.request_id THEN 'PENDING' 
+                        WHEN cv_jobs.request_id != excluded.request_id THEN 'PENDING'
+                        WHEN excluded.criteria_hash IS NOT NULL
+                             AND cv_jobs.criteria_hash IS DISTINCT FROM excluded.criteria_hash THEN 'PENDING'
                         WHEN cv_jobs.status = 'FAILED' THEN 'PENDING'
                         ELSE cv_jobs.status 
                     END,
                     retry_count = CASE 
-                        WHEN cv_jobs.request_id != excluded.request_id THEN 0 
+                        WHEN cv_jobs.request_id != excluded.request_id THEN 0
+                        WHEN excluded.criteria_hash IS NOT NULL
+                             AND cv_jobs.criteria_hash IS DISTINCT FROM excluded.criteria_hash THEN 0
                         WHEN cv_jobs.status = 'FAILED' THEN 0 
                         ELSE cv_jobs.retry_count 
                     END,
                     ai_response = CASE
                         WHEN cv_jobs.request_id != excluded.request_id THEN NULL
+                        WHEN excluded.criteria_hash IS NOT NULL
+                             AND cv_jobs.criteria_hash IS DISTINCT FROM excluded.criteria_hash THEN NULL
                         ELSE cv_jobs.ai_response
                     END,
                     error_log = CASE
                         WHEN cv_jobs.request_id != excluded.request_id THEN NULL
+                        WHEN excluded.criteria_hash IS NOT NULL
+                             AND cv_jobs.criteria_hash IS DISTINCT FROM excluded.criteria_hash THEN NULL
                         WHEN cv_jobs.status = 'FAILED' THEN NULL
                         ELSE cv_jobs.error_log
                     END,
@@ -121,6 +143,7 @@ def enqueue_resumes(
                     auth_token,
                     company_id,
                     business_entity_id,
+                    criteria_hash,
                 ),
             )
         conn.commit()
